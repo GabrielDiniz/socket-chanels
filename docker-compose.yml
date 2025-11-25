@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  versa-atende-painel-server:
+    container_name: versa-atende-painel-server
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner # Em dev, você pode mudar target ou usar volume mapping
+    restart: always
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

@@ -1,0 +1,50 @@
+{
+  "name": "painel-chamada-realtime",
+  "version": "1.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "dev": "nodemon --watch 'src/server/**/*.ts' --exec \"ts-node --project tsconfig.server.json server.ts\"",
+    "dev:api": "cross-env NEXT_ENABLED=false nodemon --watch 'src/server/**/*.ts' --exec \"ts-node --project tsconfig.server.json server.ts\"",
+    "build:next": "next build",
+    "build:server": "tsc --project tsconfig.server.json",
+    "build": "npm run build:next && npm run build:server",
+    "build:api": "npm run build:server",
+    "start": "NODE_ENV=production node dist/server.js",
+    "start:api": "cross-env NODE_ENV=production NEXT_ENABLED=false node dist/server.js",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "cross-env": "^7.0.3",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.1",
+    "lucide-react": "^0.460.0",
+    "next": "16.0.0",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "16.0.0",
+    "nodemon": "^3.1.7",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  },
+  "overrides": {
+    "glob": "^10.4.5",
+    "rimraf": "^5.0.10",
+    "inflight": "^1.0.6"
+  }
+}
