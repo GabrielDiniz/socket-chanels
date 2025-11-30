@@ -4,16 +4,19 @@ services:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: versa_painel
-      MYSQL_USER: versa_user
-      MYSQL_PASSWORD: versa_pass
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_APP_USER: ${MYSQL_APP_USER}
+      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD}
+      MYSQL_MIGRATE_USER: ${MYSQL_MIGRATE_USER}
+      MYSQL_MIGRATE_PASSWORD: ${MYSQL_MIGRATE_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init.sh:/docker-entrypoint-initdb.d/01-init.sh
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -44,21 +47,21 @@ services:
       retries: 10
       start_period: 10s
   
-  versa-atende-painel-test:
-    container_name: versa-atende-painel-test
+  migrate:
+    container_name: prisma-migrate
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder
-    command: npm run test:broadcast
+      target: builder                     # tem ts-node + prisma + código fonte
+    command: npx prisma migrate deploy       # ← produção: só aplica
     environment:
-      - SERVER_URL=http://versa-atende-painel-server:3000   # ← como você pediu
-      - CHANNEL=recepcao_01
+      - DATABASE_URL=mysql://${MYSQL_MIGRATE_USER}:${MYSQL_MIGRATE_PASSWORD}@db:3306/${MYSQL_DATABASE}
     depends_on:
-      versa-atende-painel-server:
+      db:
         condition: service_healthy
+    profiles: ["migrate"]                     # ← só roda quando você quiser
     networks:
-      - app-network
+      - app-network  
 
 volumes:
   mysql-data:

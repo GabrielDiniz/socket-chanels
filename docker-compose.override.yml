@@ -1,0 +1,41 @@
+
+
+services:
+  versa-atende-painel-server:
+    # Hot-reload + modo dev
+    command: npm run dev
+    environment:
+      - NODE_ENV=development
+      - NEXT_ENABLED=false
+    volumes:
+      - .:/app                    # código local → hot-reload instantâneo
+      - /app/node_modules         # protege node_modules da imagem
+    ports:
+      - "3000:3000"
+      - "24678:24678"             # opcional: VSCode debugger
+
+  versa-atende-painel-test:
+    container_name: versa-atende-painel-test
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    command: npm run test:broadcast
+    environment:
+      - SERVER_URL=http://versa-atende-painel-server:3000   # ← como você pediu
+      - CHANNEL=recepcao_01
+    depends_on:
+      versa-atende-painel-server:
+        condition: service_healthy
+    networks:
+      - app-network
+  migrate:
+    entrypoint: ["npx", "prisma", "migrate", "dev"]
+    # ← entrypoint fixo, argumentos livres
+    command: []
+    tty: true                           # ← ESSENCIAL pro modo interativo
+    stdin_open: true
+    volumes:
+      - .:/app
+
+  # O db continua exatamente igual — sem override
