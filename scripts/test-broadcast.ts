@@ -1,47 +1,49 @@
-// Para rodar: npx ts-node scripts/test-broadcast.ts
-import { io } from 'socket.io-client';
+// scripts/test-broadcast.ts
+// Painel de teste permanente — escuta chamadas para sempre
 
-const PORT = process.env.PORT || '3000';
-const URL = `http://localhost:${PORT}`;
-const CHANNEL = 'recepcao_01'; // Canal de teste
+const { io } = require('socket.io-client');
 
-console.log(`🔵 Tentando conectar ao servidor em ${URL}...`);
+const SERVER_URL = process.env.SERVER_URL || 'http://versa-atende-painel-server:3000';
+const CHANNEL = process.env.CHANNEL || 'recepcao_01';
 
-const socket = io(URL, {
-  transports: ['websocket', 'polling']
+console.log(`\nPAINEL DE TESTE PERMANENTE`);
+console.log(`Servidor: ${SERVER_URL}`);
+console.log(`Canal: ${CHANNEL}`);
+console.log(`Aguardando chamadas em tempo real... (Ctrl+C para parar)\n`);
+
+const socket = io(SERVER_URL, {
+  transports: ['websocket', 'polling'],
+  timeout: 20000,
+  reconnection: true,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 3000,
 });
 
 socket.on('connect', () => {
-  console.log(`✅ [SOCKET] Conectado com sucesso! ID: ${socket.id}`);
-  
-  // Entra no canal
-  console.log(`➡️  [SOCKET] Entrando no canal: ${CHANNEL}`);
+  console.log(`[SOCKET] Conectado! ID: ${socket.id}`);
   socket.emit('join_channel', CHANNEL);
+  console.log(`[SOCKET] Entrou na sala: ${CHANNEL}\n`);
 });
 
-socket.on('connect_error', (err) => {
-  console.error(`❌ [SOCKET] Erro de conexão: ${err.message}`);
+socket.on('connect_error', (err: any) => {
+  console.error(`[ERRO] Falha na conexão: ${err.message}`);
 });
 
-// Ouve o evento de chamada (A PROVA DO FUNCIONAMENTO)
-socket.on('call_update', (data) => {
-  console.log('\n🔔 [EVENTO RECEBIDO] call_update');
-  console.log('---------------------------------------------------');
+socket.on('call_update', (data: any) => {
+  console.log('CHAMADA RECEBIDA!');
+  console.log('════════════════════════════════════════════════');
   console.dir(data, { depth: null, colors: true });
-  console.log('---------------------------------------------------');
-  
-  console.log('✅ Teste concluído com sucesso. Encerrando...');
+  console.log('════════════════───────────────────────────────\n');
+});
+
+// Mantém vivo pra sempre
+process.on('SIGINT', () => {
+  console.log('\nEncerrando painel de teste...');
   socket.disconnect();
   process.exit(0);
 });
 
-socket.on('disconnect', () => {
-  console.log('🔴 [SOCKET] Desconectado');
+process.on('SIGTERM', () => {
+  socket.disconnect();
+  process.exit(0);
 });
-
-// Timeout de segurança
-setTimeout(() => {
-  console.error('\n❌ Timeout: Nenhuma chamada recebida em 30 segundos.');
-  console.error('   Verifique se você enviou o POST para a API corretamente.');
-  process.exit(1);
-}, 30000);

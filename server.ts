@@ -73,7 +73,7 @@ async function bootstrap() {
   }
 
   // 6. Inicialização do Servidor HTTP
-  const server = httpServer.listen(parseInt(env.PORT), (err?: any) => {
+  const server = httpServer.listen(env.PORT, (err?: any) => {
     if (err) throw err;
     console.log(`> 📡 Server ouvindo em http://localhost:${env.PORT}`);
   });

@@ -1,12 +1,32 @@
-version: '3.8'
-
+# docker-compose.yml completo com MySQL + Prisma migrate automático
 services:
+  db:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: versa_painel
+      MYSQL_USER: versa_user
+      MYSQL_PASSWORD: versa_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app-network
+
   versa-atende-painel-server:
     container_name: versa-atende-painel-server
     build:
       context: .
       dockerfile: Dockerfile
-      target: runner # Em dev, você pode mudar target ou usar volume mapping
+      args:
+        NEXT_ENABLED: "false"   # API-only (perfeito pro momento)
     restart: always
     ports:
       - "3000:3000"
@@ -14,8 +34,34 @@ services:
       - .env
     environment:
       - NODE_ENV=production
+      - NEXT_ENABLED=false
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]  # endpoint que já existe!
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+  
+  versa-atende-painel-test:
+    container_name: versa-atende-painel-test
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    command: npm run test:broadcast
+    environment:
+      - SERVER_URL=http://versa-atende-painel-server:3000   # ← como você pediu
+      - CHANNEL=recepcao_01
+    depends_on:
+      versa-atende-painel-server:
+        condition: service_healthy
+    networks:
+      - app-network
+
+volumes:
+  mysql-data:
 
 networks:
   app-network:

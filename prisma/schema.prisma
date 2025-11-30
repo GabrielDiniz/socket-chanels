@@ -1,0 +1,42 @@
+// prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model Channel {
+  id        String    @id @default(cuid())
+  slug      String    @unique // ex: "recepcao-terreo"
+  name      String    // ex: "Recepção Térreo"
+  apiKey    String    @unique // UUID v4 gerado na criação
+  tenant    String?   // ex: "hospital-sao-luiz"
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  calls     Call[]
+
+  @@map("channels")
+}
+
+model Call {
+  id            String   @id @default(cuid())
+  channelId     String
+  channel       Channel  @relation(fields: [channelId], references: [id])
+
+  patientName   String
+  destination   String
+  professional  String?
+  ticket        String?   // ex: "A019" do SGA
+  isPriority    Boolean  @default(false)
+  sourceSystem  String   // "Versa" | "NovoSGA"
+  rawPayload    Json?    // auditoria completa
+  calledAt      DateTime @default(now())
+
+  @@index([channelId, calledAt])
+  @@map("calls")
+}

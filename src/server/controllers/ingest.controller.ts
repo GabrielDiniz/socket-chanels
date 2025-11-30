@@ -1,55 +1,123 @@
+// src/server/controllers/ingest.controller.ts
 import { Request, Response, NextFunction } from 'express';
-import { env } from '../config/env';
 import { PayloadFactory } from '../adapters/payload.factory';
 import { SocketService } from '../services/socket.service';
+import { channelService } from '../services/channel.service';
+import { prisma } from '../config/prisma';
+import { CallEntity } from '../domain/call.entity';
 
-// Middleware de Auth (Extraído para função pura)
-export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
-  const token = req.headers['x-auth-token'];
-  const channel = req.headers['x-channel-id'];
+// -------------------------------------------------------------------
+// 1. Middleware de autenticação por canal (API Key + slug)
+// -------------------------------------------------------------------
+export const authMiddleware = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const apiKey = req.headers['x-auth-token'] as string;
+  const channelSlug = req.headers['x-channel-id'] as string;
 
-  if (token !== env.API_SECRET) {
-    return res.status(401).json({ error: 'Unauthorized', message: 'Token inválido' });
+  if (!apiKey || !channelSlug) {
+    res.status(400).json({
+      error: 'Bad Request',
+      message: 'Headers x-auth-token e x-channel-id são obrigatórios',
+    });
+    return;
   }
-  
-  if (!channel || Array.isArray(channel)) {
-    return res.status(400).json({ error: 'Bad Request', message: 'Channel ID header é obrigatório' });
-  }
 
-  // Anexa o canal à request (Estender types do Express seria ideal aqui)
-  (req as any).channelId = channel;
-  next();
+  try {
+    const channel = await channelService.findByApiKeyAndSlug(apiKey, channelSlug);
+
+    if (!channel) {
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: 'Token ou canal inválido ou inativo',
+      });
+      return;
+    }
+
+    // Anexa o registro completo do canal à request (evita consultas repetidas)
+    (req as any).channel = channel;
+    next();
+  } catch (err) {
+    console.error('[AuthMiddleware] Erro inesperado:', err);
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
 };
 
-// Controller Factory (Injeção de Dependência do SocketService)
-export const createIngestController = (socketService: SocketService) => {
-  return async (req: Request, res: Response) => {
+// -------------------------------------------------------------------
+// 2. Controller principal – fábrica com injeção do SocketService
+// -------------------------------------------------------------------
+export const createIngestController =
+  (socketService: SocketService) =>
+  async (req: Request, res: Response): Promise<void> => {
     try {
-      const channelId = (req as any).channelId;
+      // Canal já validado e anexado pelo middleware
+      const channel = (req as any).channel;
       const rawPayload = req.body;
 
-      // 1. Adapter: Normaliza os dados (Clean Code: Complexidade escondida na Factory)
-      const normalizedCall = PayloadFactory.create(rawPayload);
+      // ----------------------------------------------------------------
+      // Normalização do payload (Strategy + Zod)
+      // ----------------------------------------------------------------
+      const normalizedCall: CallEntity = PayloadFactory.create(rawPayload);
 
-      // 2. Service: Executa o efeito colateral (Broadcast)
-      socketService.broadcastCall(channelId, normalizedCall);
-
-      console.info(`[Ingest] Chamada processada para ${channelId}: ${normalizedCall.name}`);
-
-      return res.status(200).json({
-        success: true,
-        data: normalizedCall
+      // ----------------------------------------------------------------
+      // Persistência da chamada (histórico + auditoria)
+      // ----------------------------------------------------------------
+      const savedCall = await prisma.call.create({
+        data: {
+          channelId: channel.id,
+          patientName: normalizedCall.name,
+          destination: normalizedCall.destination,
+          professional: normalizedCall.professional ?? null,
+          ticket:
+            normalizedCall.rawSource === 'NovoSGA' ? normalizedCall.name : null,
+          isPriority: normalizedCall.isPriority,
+          sourceSystem: normalizedCall.rawSource,
+          rawPayload: rawPayload as any, // Json do Prisma aceita objeto puro
+        },
       });
 
+      // ----------------------------------------------------------------
+      // Broadcast em tempo real para todos os clientes na room (slug)
+      // ----------------------------------------------------------------
+      socketService.broadcastCall(channel.slug, {
+        ...normalizedCall,
+        id: savedCall.id, // garante ID único (cuid) no frontend também
+      });
+
+      console.info(
+        `[Ingest] Canal "${channel.slug}" (${channel.name}) → ${normalizedCall.name} → ${normalizedCall.destination}`
+      );
+
+      // ----------------------------------------------------------------
+      // Resposta de sucesso
+      // ----------------------------------------------------------------
+      res.status(200).json({
+        success: true,
+        data: {
+          id: savedCall.id,
+          channel: channel.slug,
+          call: normalizedCall,
+        },
+      });
     } catch (error: any) {
-      console.error('[Ingest Error]', error);
-      
-      // Tratamento de erro (Zod errors ou erros de negócio)
-      const status = error.name === 'ZodError' ? 422 : 400;
-      return res.status(status).json({
+      console.error('[IngestController] Erro:', error);
+
+      // Erros de validação Zod → 422 Unprocessable Entity
+      if (error.name === 'ZodError') {
+        res.status(422).json({
+          success: false,
+          error: 'Payload inválido',
+          details: error.errors,
+        });
+        return;
+      }
+
+      // Erro genérico de negócio ou estratégia desconhecida
+      res.status(400).json({
         success: false,
-        error: error.message
+        error: error.message || 'Erro ao processar chamada',
       });
     }
   };
-};
