@@ -5,25 +5,20 @@
   "engines": {
     "node": ">=20.0.0"
   },
-
   "scripts": {
     "dev": "nodemon --watch 'src/server/**/*.ts' --exec \"ts-node --project tsconfig.server.json server.ts\"",
-    "dev:api": "cross-env NEXT_ENABLED=false nodemon --watch ./src --watch ./server.ts --ext ts --exec \"ts-node --project tsconfig.server.json server.ts\"",
-    "dev:api:debug": "cross-env NEXT_ENABLED=false nodemon --watch ./src --watch ./server.ts --ext ts --exec \"node --inspect=0.0.0.0:24678 -r ts-node/register server.ts\"",
+    "dev:debug": "nodemon --watch src --watch server.ts --ext ts --exec \"tsx server.ts --inspect=0.0.0.0:24678\"",
+    "dev:api": "cross-env NEXT_ENABLED=false nodemon --watch src --watch server.ts --ext ts --exec \"tsx server.ts\"",
+    "dev:api:debug": "cross-env NEXT_ENABLED=false nodemon --watch src --watch server.ts --ext ts --exec \"tsx --inspect=0.0.0.0:24678 server.ts\"",
     "build:next": "next build",
     "build:server": "tsc --project tsconfig.server.json",
-    
     "build": "npm run build:server && npm run build:next-if-enabled",
     "build:api": "npm run build:server",
-    
     "build:next-if-enabled": "if [ \"$NEXT_ENABLED\" = \"true\" ]; then npm run build:next; else echo \"NEXT_ENABLED=false → pulando build do Next.js\"; fi",
-    
     "start": "NODE_ENV=production node dist/server.js",
     "start:api": "cross-env NODE_ENV=production NEXT_ENABLED=false node dist/server.js",
-
     "build:test": "tsc scripts/test-broadcast.ts --outDir dist-test --target es2020 --module commonjs --esModuleInterop --resolveJsonModule --skipLibCheck",
     "test:broadcast": "node dist-test/test-broadcast.js",
-    
     "lint": "next lint || true"
   },
   "dependencies": {
@@ -53,6 +48,7 @@
     "prisma": "^6.19.0",
     "tailwindcss": "^3.4.15",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.7.2"
   },
   "overrides": {

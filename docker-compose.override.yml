@@ -3,13 +3,13 @@
 services:
   versa-atende-painel-server:
     # Hot-reload + modo dev
-    command: npm run dev:api
+    command: npm run dev:api:debug
     environment:
       - NODE_ENV=development
       - NEXT_ENABLED=false
     volumes:
-      - .:/app                    # código local → hot-reload instantâneo
-      - /app/node_modules         # protege node_modules da imagem
+      - .:/app:delegated
+      - /app/node_modules
     ports:
       - "3000:3000"
       - "24678:24678"             # opcional: VSCode debugger
@@ -29,6 +29,10 @@ services:
         condition: service_healthy
     networks:
       - app-network
+    volumes:
+      - .:/app:cached
+      - /app/node_modules
+      - /app/dist-test
   migrate:
     entrypoint: ["npx", "prisma", "migrate", "dev"]
     # ← entrypoint fixo, argumentos livres
@@ -36,6 +40,5 @@ services:
     tty: true                           # ← ESSENCIAL pro modo interativo
     stdin_open: true
     volumes:
-      - .:/app
-
-  # O db continua exatamente igual — sem override
+      - .:/app:cached
+      - /app/node_modules

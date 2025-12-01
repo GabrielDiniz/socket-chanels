@@ -48,6 +48,8 @@ export const channelController = async (req: Request, res: Response) => {
       },
     });
 
+    console.log(`[Register] Novo canal registrado: ${channel.slug} (${channel.name})`);
+
     // 4. Resposta com credenciais (NUNCA mais vai precisar pedir pro admin)
     return res.status(201).json({
       success: true,

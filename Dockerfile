@@ -29,6 +29,7 @@ COPY --from=builder /app/package.json ./
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts ./scripts 
 
+
 USER nextjs
 EXPOSE 3000
 CMD ["npm", "start"]
