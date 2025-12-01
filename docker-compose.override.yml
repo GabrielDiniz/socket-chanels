@@ -3,7 +3,7 @@
 services:
   versa-atende-painel-server:
     # Hot-reload + modo dev
-    command: npm run dev
+    command: npm run dev:api
     environment:
       - NODE_ENV=development
       - NEXT_ENABLED=false

@@ -13,6 +13,7 @@ const envSchema = z.object({
 
   // API_SECRET agora é OPCIONAL (mantemos só por compatibilidade antiga)
   API_SECRET: z.string().optional(),
+  CHANNEL_REGISTRATION_KEY: z.string().min(10).default('supersecretkey12345'),
 });
 
 const _env = envSchema.safeParse(process.env);

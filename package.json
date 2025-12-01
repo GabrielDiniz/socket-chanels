@@ -8,8 +8,8 @@
 
   "scripts": {
     "dev": "nodemon --watch 'src/server/**/*.ts' --exec \"ts-node --project tsconfig.server.json server.ts\"",
-    "dev:api": "cross-env NEXT_ENABLED=false nodemon --watch 'src/server/**/*.ts' --exec \"ts-node --project tsconfig.server.json server.ts\"",
-    
+    "dev:api": "cross-env NEXT_ENABLED=false nodemon --watch ./src --watch ./server.ts --ext ts --exec \"ts-node --project tsconfig.server.json server.ts\"",
+    "dev:api:debug": "cross-env NEXT_ENABLED=false nodemon --watch ./src --watch ./server.ts --ext ts --exec \"node --inspect=0.0.0.0:24678 -r ts-node/register server.ts\"",
     "build:next": "next build",
     "build:server": "tsc --project tsconfig.server.json",
     

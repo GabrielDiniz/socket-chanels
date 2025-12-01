@@ -48,7 +48,7 @@ export const authMiddleware = async (
 // -------------------------------------------------------------------
 // 2. Controller principal – fábrica com injeção do SocketService
 // -------------------------------------------------------------------
-export const createIngestController =
+export const createIngestController = 
   (socketService: SocketService) =>
   async (req: Request, res: Response): Promise<void> => {
     try {

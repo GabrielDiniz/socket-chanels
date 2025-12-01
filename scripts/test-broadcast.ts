@@ -4,7 +4,7 @@
 const { io } = require('socket.io-client');
 
 const SERVER_URL = process.env.SERVER_URL || 'http://versa-atende-painel-server:3000';
-const CHANNEL = process.env.CHANNEL || 'recepcao_01';
+const CHANNEL = process.env.CHANNEL || 'recepcao-principal';
 
 console.log(`\nPAINEL DE TESTE PERMANENTE`);
 console.log(`Servidor: ${SERVER_URL}`);

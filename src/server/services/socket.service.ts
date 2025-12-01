@@ -1,5 +1,5 @@
 import { Server as SocketIOServer } from 'socket.io';
-import { NormalizedEvent } from '../domain/call.entity';
+
 
 export class SocketService {
   private io: SocketIOServer;

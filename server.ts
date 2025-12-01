@@ -1,96 +1,85 @@
+// server.ts
 import express from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { env } from './src/server/config/env';
 import { SocketService } from './src/server/services/socket.service';
-import { createIngestController, authMiddleware } from './src/server/controllers/ingest.controller';
+import { createRoutes } from './src/server/routes'; // ← nova importação
 
-// Bootstrapping assíncrono para controle total
 async function bootstrap() {
   const expressApp = express();
   const httpServer = http.createServer(expressApp);
 
   console.log('---------------------------------------------------');
-  console.log(`🚀 Inicializando Painel de Chamada v1.0`);
-  console.log(`🔧 Modo: ${env.NEXT_ENABLED ? 'FULL STACK (Frontend + API)' : 'HEADLESS (API Only)'}`);
+  console.log(`Inicializando Painel de Chamada v1.0`);
+  console.log(`Modo: ${env.NEXT_ENABLED ? 'FULL STACK (Frontend + API)' : 'HEADLESS (API Only)'}`);
   console.log('---------------------------------------------------');
-  
-  // 1. Configuração do Socket.io (Camada de Infraestrutura)
+
+  // 1. Socket.IO
   const io = new SocketIOServer(httpServer, {
-    cors: { origin: env.CORS_ORIGIN, methods: ["GET", "POST"] }
+    cors: { origin: env.CORS_ORIGIN, methods: ['GET', 'POST'] },
   });
 
-  // 2. Inicialização de Serviços
+  // 2. Serviços
   const socketService = new SocketService(io);
-  const ingestController = createIngestController(socketService);
 
-  // 3. Middlewares Globais
+  // 3. Middlewares globais
   expressApp.use(express.json());
 
-  // 4. Rotas da API (Backend Puro)
-  expressApp.post(
-    '/api/v1/chamada', 
-    authMiddleware, 
-    ingestController
-  );
+  // 4. Rotas organizadas (novo padrão limpo)
+  const routes = createRoutes(socketService);
+  expressApp.use('/api/v1', routes);
 
-  // Endpoint de Healthcheck para Docker/K8s
-  expressApp.get('/health', (_, res) => res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    connections: io.engine.clientsCount 
-  }));
+  // 5. Healthcheck (obrigatório em produção)
+  expressApp.get('/health', (_, res) => {
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      clients: io.engine.clientsCount,
+    });
+  });
 
-  // 5. Integração com Next.js (Condicional e Lazy Loading)
+  // 6. Next.js (opcional)
   if (env.NEXT_ENABLED) {
     const next = require('next');
     const dev = env.NODE_ENV !== 'production';
     const app = next({ dev });
     const handle = app.getRequestHandler();
 
-    try {
-      await app.prepare();
-      expressApp.all('*', (req, res) => handle(req, res));
-      console.log('> ✅ Next.js frontend anexado com sucesso.');
-    } catch (err) {
-      console.error('> ❌ Falha crítica ao iniciar Next.js:', err);
-      process.exit(1);
-    }
+    await app.prepare();
+    expressApp.all('*', (req, res) => handle(req, res));
+    console.log('> Next.js frontend carregado');
   } else {
-    // Rota padrão para quando não houver frontend
     expressApp.get('/', (_, res) => {
-      res.status(200).send(`
-        <div style="font-family: monospace; padding: 2rem;">
-          <h1 style="color: #2563eb;">Painel Backend (API Only)</h1>
-          <p>Frontend desativado via variável de ambiente.</p>
-          <hr/>
-          <p><strong>Status:</strong> Online 🟢</p>
-          <p><strong>WebSocket:</strong> Porta ${env.PORT}</p>
-          <p><strong>Clientes Conectados:</strong> ${io.engine.clientsCount}</p>
-        </div>
+      res.send(`
+        <h1>Painel de Chamada — API Only</h1>
+        <p>Frontend desativado (NEXT_ENABLED=false)</p>
+        <p>Clientes conectados: ${io.engine.clientsCount}</p>
       `);
     });
   }
 
-  // 6. Inicialização do Servidor HTTP
-  const server = httpServer.listen(env.PORT, (err?: any) => {
-    if (err) throw err;
-    console.log(`> 📡 Server ouvindo em http://localhost:${env.PORT}`);
+  // 7. Inicia o servidor
+  httpServer.listen(env.PORT, () => {
+    console.log(`> Server rodando em http://localhost:${env.PORT}`);
   });
 
-  // Graceful Shutdown
-  const gracefulShutdown = (signal: string) => {
-    console.log(`\n[${signal}] Recebido. Encerrando processos...`);
-    server.close(() => {
-      io.close(() => {
-        console.log('  ✅ Conexões encerradas com sucesso.');
+  // Graceful shutdown
+  const shutdown = () => {
+    console.log('\nEncerrando servidor...');
+    io.close(() => {
+      httpServer.close(() => {
         process.exit(0);
       });
     });
   };
 
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error('Falha crítica ao iniciar o servidor:', err);
+  process.exit(1);
+});
