@@ -1,7 +1,7 @@
-
-
 services:
-  versa-atende-painel-server:
+  versa-atende-builder-base:
+    image: versa-atende-builder:latest
+  server:
     # Hot-reload + modo dev
     command: npm run dev:api:debug
     environment:
@@ -14,18 +14,16 @@ services:
       - "3000:3000"
       - "24678:24678"             # opcional: VSCode debugger
 
-  versa-atende-painel-test:
-    container_name: versa-atende-painel-test
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: builder
+  broadcast-test:
+    container_name: versa-atende-broadcast-test
+    extends:
+      service: versa-atende-builder-base
     command: npm run test:broadcast
     environment:
-      - SERVER_URL=http://versa-atende-painel-server:3000   # ← como você pediu
+      - SERVER_URL=http://versa-atende-painel-server:3000
       - CHANNEL=recepcao_01
     depends_on:
-      versa-atende-painel-server:
+      server:
         condition: service_healthy
     networks:
       - app-network
@@ -33,12 +31,35 @@ services:
       - .:/app:cached
       - /app/node_modules
       - /app/dist-test
+
+  jest:
+    container_name: versa-atende-api-jest
+    extends:
+      service: versa-atende-builder-base
+    command: npm test -- --watchAll=false  # Run único; mude para --watchAll para modo watch
+    environment:
+      - NODE_ENV=test
+    depends_on:
+      db:
+        condition: service_healthy  # Opcional para unitários
+    networks:
+      - app-network
+    volumes:
+      - .:/app:cached
+      - /app/node_modules
+    tty: true
+    stdin_open: true
+
   migrate:
     entrypoint: ["npx", "prisma", "migrate", "dev"]
-    # ← entrypoint fixo, argumentos livres
     command: []
-    tty: true                           # ← ESSENCIAL pro modo interativo
+    tty: true
     stdin_open: true
     volumes:
       - .:/app:cached
       - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app-network

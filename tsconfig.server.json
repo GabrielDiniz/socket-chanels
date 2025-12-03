@@ -16,5 +16,5 @@
     "types": ["node"]
   },
   "include": ["server.ts", "src/server/**/*"],
-  "exclude": ["node_modules", ".next", "dist", "next.config.js", "src/app/**/*"]
+  "exclude": ["node_modules", ".next", "dist", "next.config.js", "src/app/**/*", "**/__tests__/**"]
 }

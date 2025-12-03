@@ -1,5 +1,18 @@
 # docker-compose.yml completo com MySQL + Prisma migrate automático
 services:
+
+  versa-atende-builder-base:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder                     # tem ts-node + prisma + código fonte
+      tags:
+        - versa-atende-builder:latest            # Tag mais explícito alinhado ao projeto
+    # O image: aqui não é estritamente necessário para o extends funcionar,
+    # mas ajuda a documentar o nome da imagem gerada.
+    image: versa-atende-builder:latest
+    # Os volumes e networks não precisam estar aqui se forem definidos nos serviços que herdam.
+    # Apenas o que é comum ao build/imagem deve estar aqui.
   db:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
@@ -23,13 +36,14 @@ services:
     networks:
       - app-network
 
-  versa-atende-painel-server:
-    container_name: versa-atende-painel-server
+  server:
+    container_name: versa-atende-api-server
     build:
       context: .
       dockerfile: Dockerfile
       args:
         NEXT_ENABLED: "false"   # API-only (perfeito pro momento)
+    image: versa-atende-api-server:latest
     restart: always
     ports:
       - "3000:3000"
@@ -51,11 +65,9 @@ services:
         condition: service_healthy
   
   migrate:
-    container_name: prisma-migrate
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: builder                     # tem ts-node + prisma + código fonte
+    container_name: migrate
+    extends:
+      service: versa-atende-builder-base
     command: npx prisma migrate deploy       # ← produção: só aplica
     environment:
       - DATABASE_URL=mysql://${MYSQL_MIGRATE_USER}:${MYSQL_MIGRATE_PASSWORD}@db:3306/${MYSQL_DATABASE}

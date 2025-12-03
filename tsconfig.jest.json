@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.server.json",
+  "compilerOptions": {
+    "types": ["node", "jest"]  // Adiciona tipos do Jest para recognize describe, it, expect, etc.
+  },
+  "include": ["src/**/*.ts", "server.ts", "**/__tests__/**/*.ts"]  // Inclui explicitamente testes
+}
