@@ -23,7 +23,11 @@ export class SocketService {
   }
 
   public broadcastCall(channel: string, data: any) {
-    // Emite evento padronizado
+    if (!channel || typeof channel !== 'string' || channel.trim() === '') {
+      console.warn('[Socket] Tentativa de broadcast para channel inválido:', channel);
+      return;
+    }
     this.io.to(channel).emit('call_update', data);
+    
   }
 }
