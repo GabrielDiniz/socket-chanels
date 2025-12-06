@@ -1,18 +1,17 @@
-// server.ts
 import express from 'express';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import { env } from './src/server/config/env';
 import { SocketService } from './src/server/services/socket.service';
-import { createRoutes } from './src/server/routes'; // ← nova importação
+import { createRoutes } from './src/server/routes';
 
-async function bootstrap() {
+export async function bootstrap() {
   const expressApp = express();
   const httpServer = http.createServer(expressApp);
 
   console.log('---------------------------------------------------');
   console.log(`Inicializando Painel de Chamada v1.0`);
-  console.log(`Modo: ${env.NEXT_ENABLED ? 'FULL STACK (Frontend + API)' : 'HEADLESS (API Only)'}`);
+  console.log(`Modo: 'HEADLESS (API Only)'}`);
   console.log('---------------------------------------------------');
 
   // 1. Socket.IO
@@ -26,11 +25,11 @@ async function bootstrap() {
   // 3. Middlewares globais
   expressApp.use(express.json());
 
-  // 4. Rotas organizadas (novo padrão limpo)
+  // 4. Rotas organizadas
   const routes = createRoutes(socketService);
   expressApp.use('/api/v1', routes);
 
-  // 5. Healthcheck (obrigatório em produção)
+  // 5. Healthcheck
   expressApp.get('/health', (_, res) => {
     res.json({
       status: 'ok',
@@ -40,8 +39,8 @@ async function bootstrap() {
     });
   });
 
-  // 6. Next.js (opcional)
-  if (env.NEXT_ENABLED) {
+  // 6. Next.js
+  /*if (env.NEXT_ENABLED) {
     const next = require('next');
     const dev = env.NODE_ENV !== 'production';
     const app = next({ dev });
@@ -50,7 +49,7 @@ async function bootstrap() {
     await app.prepare();
     expressApp.all('*', (req, res) => handle(req, res));
     console.log('> Next.js frontend carregado');
-  } else {
+  } else {*/
     expressApp.get('/', (_, res) => {
       res.send(`
         <h1>Painel de Chamada — API Only</h1>
@@ -58,7 +57,7 @@ async function bootstrap() {
         <p>Clientes conectados: ${io.engine.clientsCount}</p>
       `);
     });
-  }
+ // }
 
   // 7. Inicia o servidor
   httpServer.listen(env.PORT, () => {
@@ -77,9 +76,12 @@ async function bootstrap() {
 
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
+  
+  return { expressApp, httpServer, io };
 }
 
-bootstrap().catch((err) => {
+// Executa se não for importado (ou se importado, a promise é exportada para testes)
+export const appPromise = bootstrap().catch((err) => {
   console.error('Falha crítica ao iniciar o servidor:', err);
   process.exit(1);
 });
