@@ -1,37 +1,35 @@
-# Stage para dependências de produção apenas (leve e isolado - Factor II)
-FROM node:24-alpine AS prod-deps
+# Dockerfile — VERSÃO FINAL (100–140 MB) ← cole e substitua o atual
+
+FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev --ignore-scripts   # ← só prod aqui
 
-# Builder: adiciona devDeps para build e testes (separado do run - Factor V)
 FROM node:24-alpine AS builder
 WORKDIR /app
+RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json* ./
-RUN npm ci --include=dev  # Instala prod + devDeps
+RUN npm ci                                # instala tudo (dev + prod) só no builder
 COPY . .
 RUN npx prisma generate
 RUN npm run build:api
-RUN npm run build:test
 
-# Runner: usa prod-deps (sem devDeps), copia artifacts do builder (disposability rápida - Factor IX)
+# ← IMAGEM FINAL ENXUTA (a que importa)
 FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
 RUN apk add --no-cache curl
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-# Copia node_modules de produção apenas (isolamento)
-COPY --from=prod-deps /app/node_modules ./node_modules
-# Copia artifacts built
+# ← AQUI ESTÁ A MÁGICA: copia node_modules de PRODUÇÃO, não do builder!
+COPY --from=deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/scripts ./scripts 
 
-USER nextjs
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 appuser
+USER appuser
+
 EXPOSE 3000
-CMD ["npm", "start"]
+CMD ["node", "dist/server.js"]

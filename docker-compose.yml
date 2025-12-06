@@ -11,6 +11,7 @@ services:
     # O image: aqui não é estritamente necessário para o extends funcionar,
     # mas ajuda a documentar o nome da imagem gerada.
     image: versa-atende-builder:latest
+    profiles: ["builder"]  
     # Os volumes e networks não precisam estar aqui se forem definidos nos serviços que herdam.
     # Apenas o que é comum ao build/imagem deve estar aqui.
   db:
