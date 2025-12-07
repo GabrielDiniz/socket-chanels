@@ -54,11 +54,10 @@ describe('Socket Service', () => {
         fail('Callback de conexão não foi capturado');
     }
 
-    // Verifica log de conexão.
-    // Usamos stringContaining para ser menos rígido quanto à formatação exata.
-    expect(logger.info).toHaveBeenCalledWith(
+    // Verifica log de conexão (Agora é DEBUG e passa um objeto serializável)
+    expect(logger.debug).toHaveBeenCalledWith(
       expect.stringContaining('[Socket] Conectado'),
-      expect.any(Object)
+      expect.objectContaining({ socketId: 'socket-123' })
     );
 
     // Verifica se registrou os listeners no socket cliente
@@ -76,8 +75,6 @@ describe('Socket Service', () => {
     (logger.debug as jest.Mock).mockClear();
 
     // 2. Recupera o callback registrado para 'join_channel'
-    // A implementação do mockSocket.on é: on(event, callback)
-    // Então procuramos a chamada onde o primeiro argumento é 'join_channel'
     const joinCall = mockSocket.on.mock.calls.find((call: any[]) => call[0] === 'join_channel');
     
     if (!joinCall) {

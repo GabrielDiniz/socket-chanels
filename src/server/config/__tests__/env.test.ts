@@ -1,6 +1,10 @@
 import { envSchema } from '../env';
 import { z } from 'zod';
 
+// IMPEDE que o dotenv carregue o arquivo .env real durante os testes
+// Isso garante que apenas as envs definidas manualmente no teste existam
+
+
 // Type guard
 const isSuccess = (
   result: z.SafeParseReturnType<any, any>
@@ -116,5 +120,54 @@ describe('Env Config', () => {
 
     await expect(import('../env')).rejects.toThrow('Exited with code 1');
     expect(mockExit).toHaveBeenCalledWith(1);
+  });
+
+  it('Deve construir DATABASE_URL a partir das variáveis atômicas quando não fornecida', async () => {
+    jest.mock('dotenv');
+    jest.mock('dotenv/config', () => {});
+    process.env = {
+      PORT: '3000',
+      NODE_ENV: 'production',
+      CORS_ORIGIN: '*',
+      NEXT_ENABLED: 'false',
+      CHANNEL_REGISTRATION_KEY: 'validkey123456',
+      // Variáveis atômicas fornecidas, mas DATABASE_URL ausente
+      DB_HOST: 'localhost',
+      DB_PORT: '3306',
+      DB_USER: 'user_fallback',
+      DB_PASS: 'pass_fallback',
+      DB_NAME: 'db_fallback',
+    };
+
+    // A importação deve disparar a lógica de fallback no arquivo env.ts
+    const { env } = await import('../env');
+
+    expect(env.DATABASE_URL).toBe(
+      'mysql://user_fallback:pass_fallback@localhost:3306/db_fallback'
+    );
+    expect(mockExit).not.toHaveBeenCalled();
+  });
+
+  it('Deve falhar e sair se DATABASE_URL e variáveis atômicas estiverem ausentes', async () => {
+    jest.mock('dotenv');
+    jest.mock('dotenv/config', () => {});
+    process.env = {
+      PORT: '3000',
+      NODE_ENV: 'production',
+      CORS_ORIGIN: '*',
+      NEXT_ENABLED: 'false',
+      CHANNEL_REGISTRATION_KEY: 'validkey123456',
+      // Sem DATABASE_URL e sem as variáveis atômicas completas
+      DB_HOST: 'localhost',
+      // Faltam DB_USER, DB_PASS, DB_NAME propositalmente para forçar erro
+    };
+
+    // Como o dotenv está mockado, ele não vai preencher as variáveis faltantes do .env real
+    await expect(import('../env')).rejects.toThrow('Exited with code 1');
+
+    expect(mockExit).toHaveBeenCalledWith(1);
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining('Erro Fatal: DATABASE_URL não definida')
+    );
   });
 });

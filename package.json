@@ -19,7 +19,7 @@
     "start:api": "cross-env NODE_ENV=production NEXT_ENABLED=false node dist/server.js",
     "build:test": "tsc scripts/test-broadcast.ts --outDir dist-test --target es2020 --module commonjs --esModuleInterop --resolveJsonModule --skipLibCheck",
     "test:broadcast": "node dist-test/test-broadcast.js",
-    "test": "jest --config jest.config.ts",
+    "test": "jest --config jest.config.ts --runInBand",
     "lint": "next lint || true"
   },
   "dependencies": {

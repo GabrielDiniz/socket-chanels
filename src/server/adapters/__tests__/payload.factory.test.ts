@@ -43,6 +43,7 @@ describe('Payload Factory', () => {
     expect(() => PayloadFactory.create(invalidVersaPayload)).toThrow(ZodError);
   });
 
+  // Testes para NovoSGA
   it('Deve criar SgaStrategy e parsear payload SGA válido, calculando isPriority baseado em peso', () => {
     const validSgaPayload = {
       senha: { format: 'A001' },
@@ -59,9 +60,21 @@ describe('Payload Factory', () => {
       destination: 'Sala 1 1',
       professional: 'user1',
       timestamp: new Date('2023-01-01T00:00:00Z'),
-      isPriority: true,
+      isPriority: true, // peso 2 > 0 -> true
       rawSource: 'NovoSGA',
     });
+  });
+
+  it('Deve considerar isPriority false se peso for 0 no SGA', () => {
+    const sgaLowPriority = {
+      senha: { format: 'N001' },
+      local: { nome: 'Triagem' },
+      numeroLocal: 2,
+      prioridade: { peso: 0 },
+      dataChamada: '2023-01-01T00:00:00Z',
+    };
+    const entity = PayloadFactory.create(sgaLowPriority);
+    expect(entity.isPriority).toBe(false);
   });
 
   it('Deve usar dataChamada se presente, senão Date.now()', () => {
@@ -74,6 +87,7 @@ describe('Payload Factory', () => {
     const entity = PayloadFactory.create(sgaWithoutDate);
     expect(entity.timestamp).toEqual(new Date(1234567890));
   });
+
 
   it('Deve lançar erro em payload desconhecido (nem Versa nem SGA)', () => {
     const unknownPayload = { invalid: 'data' };

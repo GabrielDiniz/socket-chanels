@@ -4,14 +4,11 @@ import Client, { Socket as ClientSocket } from 'socket.io-client';
 
 // Limpa todas as tabelas para garantir testes isolados
 export const resetDatabase = async () => {
-  try {
+  
     // A ordem importa devido às chaves estrangeiras (Call depende de Channel)
     await prisma.call.deleteMany();
     await prisma.channel.deleteMany();
-  } catch (error) {
-    console.error('Falha ao limpar banco de dados de teste:', error);
-    throw new Error('Não foi possível limpar o banco de testes. Verifique a conexão.');
-  }
+  
 };
 
 // Cria um canal mock para testes

@@ -13,6 +13,12 @@ jest.mock('../../controllers/ingest.controller', () => ({
   createIngestController: jest.fn().mockReturnValue((req: any, res: any) => res.end()),
 }));
 
+// Mock do novo controller de histórico
+jest.mock('../../controllers/history.controller', () => ({
+  __esModule: true,
+  getChannelHistory: jest.fn((req, res) => res.end()),
+}));
+
 describe('Routes', () => {
   let routerMock: any;
   let mockSocketService: SocketService;
@@ -21,8 +27,10 @@ describe('Routes', () => {
   beforeEach(() => {
     jest.resetModules();
 
+    // ADICIONADO: mock para o método get
     routerMock = {
       post: jest.fn(),
+      get: jest.fn(),
     };
     
     // Mock manual do Express Router
@@ -61,6 +69,17 @@ describe('Routes', () => {
       '/chamada',
       authMiddleware,
       expect.any(Function)
+    );
+  });
+
+  it('createRoutes deve registrar GET /channels/:slug/history com getChannelHistory', () => {
+    const { getChannelHistory } = require('../../controllers/history.controller');
+
+    createRoutes(mockSocketService);
+
+    expect(routerMock.get).toHaveBeenCalledWith(
+      '/channels/:slug/history',
+      getChannelHistory
     );
   });
 });

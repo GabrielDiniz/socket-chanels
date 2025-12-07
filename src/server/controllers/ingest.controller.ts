@@ -4,7 +4,7 @@ import { SocketService } from '../services/socket.service';
 import { channelService } from '../services/channel.service';
 import { prisma } from '../config/prisma';
 import { CallEntity } from '../domain/call.entity';
-import { logger } from '../config/logger'; // Importa o logger
+import { logger } from '../config/logger';
 
 // -------------------------------------------------------------------
 // 1. Middleware de autenticação por canal (API Key + slug)
@@ -56,8 +56,10 @@ export const createIngestController =
       const channel = (req as any).channel;
       const rawPayload = req.body;
 
+      // 1. Normalização (Pode lançar ZodError ou Error genérico de formato)
       const normalizedCall: CallEntity = PayloadFactory.create(rawPayload);
 
+      // 2. Persistência (Pode lançar erro do Prisma/DB)
       const savedCall = await prisma.call.create({
         data: {
           channelId: channel.id,
@@ -71,12 +73,12 @@ export const createIngestController =
         },
       });
 
+      // 3. Broadcast
       socketService.broadcastCall(channel.slug, {
         ...normalizedCall,
         id: savedCall.id,
       });
 
-      // Log estruturado com metadados úteis para análise de tráfego
       logger.info('Chamada processada', {
         channel: channel.slug,
         patient: normalizedCall.name,
@@ -93,6 +95,7 @@ export const createIngestController =
         },
       });
     } catch (error: any) {
+      // Caso 1: Erro de Validação do Zod (422)
       if (error.name === 'ZodError') {
         logger.warn('[Ingest] Payload inválido', { errors: error.errors, channel: (req as any).channel?.slug });
         res.status(422).json({
@@ -103,10 +106,21 @@ export const createIngestController =
         return;
       }
 
-      logger.error('[Ingest] Erro de processamento', { error: error.message });
-      res.status(400).json({
+      // Caso 2: Payload desconhecido (regra de negócio da Factory) (400)
+      if (error.message === 'Formato de payload desconhecido ou não suportado.') {
+         logger.warn('[Ingest] Formato desconhecido', { error: error.message });
+         res.status(400).json({
+          success: false,
+          error: error.message,
+        });
+        return;
+      }
+
+      // Caso 3: Erro interno (Banco de dados, Socket, etc) (500)
+      logger.error('[Ingest] Erro de processamento', { error: error.message, stack: error.stack });
+      res.status(500).json({
         success: false,
-        error: error.message || 'Erro ao processar chamada',
+        error: 'Erro interno ao processar chamada',
       });
     }
   };

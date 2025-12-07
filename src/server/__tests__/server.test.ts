@@ -58,4 +58,11 @@ describe('App Factory (createApp)', () => {
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('status', 'ok');
   });
+
+  it('Deve responder à rota raiz ("/") em modo API Only', async () => {
+    const res = await request(appInstance).get('/');
+    
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('Painel de Chamada — API Only');
+  });
 });

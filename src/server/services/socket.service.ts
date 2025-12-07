@@ -1,6 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { logger } from '../config/logger';
-import { channel } from 'diagnostics_channel';
+
 
 export class SocketService {
   private io: SocketIOServer;
@@ -12,7 +12,7 @@ export class SocketService {
 
   private setupConnectionLogs() {
     this.io.on('connection', (socket) => {
-      logger.debug(`[Socket] Conectado: ${socket.id}`,socket);
+      logger.debug(`[Socket] Conectado: ${socket.id}`,{socketId: socket.id});
       
       socket.on('join_channel', (channelId: string) => {
         socket.join(channelId);
@@ -32,8 +32,9 @@ export class SocketService {
     }
     
     // Podemos logar nível debug se quisermos ver todo tráfego, ou info apenas em eventos críticos
-    // logger.debug(`[Socket] Broadcasting para ${channel}`, { data });
+    logger.debug(`[Socket] Broadcasting para ${channel}`, { data });
     
     this.io.to(channel).emit('call_update', data);
+    
   }
 }

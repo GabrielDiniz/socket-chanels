@@ -49,26 +49,28 @@ describe('Integração: Ingestão e Broadcast', () => {
   });
 
   it('Deve persistir chamada e emitir evento via Socket.IO', (done) => {
-    // O teste é assíncrono e baseado em eventos, então usamos 'done' ou async/await com Promises
     (async () => {
       try {
-        // 1. Setup: Criar Canal no Banco
-        const channel = await createMockChannel({ slug: 'sala-espera-01' });
+        // 1. Setup: Criar Canal no Banco com API Key EXPLÍCITA
+        // Isso evita ambiguidades de geração de UUID durante o teste
+        const TEST_API_KEY = 'test-api-key-123-secure';
+        const channel = await createMockChannel({ 
+          slug: 'sala-espera-01',
+          apiKey: TEST_API_KEY,
+          isActive: true
+        });
 
         // 2. Conectar Cliente Socket
         clientSocket = createSocketClient(port);
         
-        // Aguarda conexão e join
         await new Promise<void>((resolve) => {
           clientSocket.on('connect', () => {
             clientSocket.emit('join_channel', channel.slug);
-            // Pequeno delay para garantir que o join foi processado pelo servidor
             setTimeout(resolve, 50);
           });
         });
 
-        // 3. Preparar listener para o evento esperado (Broadcast)
-        // Usamos uma Promise que resolve quando o evento chega
+        // 3. Preparar listener para o evento esperado
         const socketEventPromise = new Promise<any>((resolve) => {
           clientSocket.on('call_update', (data) => {
             resolve(data);
@@ -87,12 +89,11 @@ describe('Integração: Ingestão e Broadcast', () => {
 
         const apiResponse = await request(app)
           .post('/api/v1/chamada')
-          .set('x-auth-token', channel.apiKey)
+          .set('x-auth-token', TEST_API_KEY) // Usa a chave explícita
           .set('x-channel-id', channel.slug)
           .send(payload)
           .expect(200);
 
-        // Validação da resposta API
         expect(apiResponse.body.success).toBe(true);
         expect(apiResponse.body.data.call.name).toBe('Maria Silva');
 
@@ -101,7 +102,6 @@ describe('Integração: Ingestão e Broadcast', () => {
         expect(socketData).toBeDefined();
         expect(socketData.name).toBe('Maria Silva');
         expect(socketData.destination).toBe('Consultório 10');
-        // O ID deve ter sido gerado e retornado
         expect(socketData.id).toBeDefined();
 
         // 6. Validação final: Banco de Dados
