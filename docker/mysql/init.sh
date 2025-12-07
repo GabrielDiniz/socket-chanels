@@ -9,6 +9,7 @@ until mysql -u root -p"${MYSQL_ROOT_PASSWORD}" -e "SELECT 1" > /dev/null 2>&1; d
   sleep 2
 done
 
+
 mysql -u root -p"${MYSQL_ROOT_PASSWORD}" <<-EOSQL
   CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\`;
 

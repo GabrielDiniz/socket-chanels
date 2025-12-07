@@ -1,31 +1,27 @@
-# docker-compose.yml completo com MySQL + Prisma migrate automático
 services:
 
   versa-atende-builder-base:
     build:
       context: .
       dockerfile: Dockerfile
-      target: builder                     # tem ts-node + prisma + código fonte
+      target: builder
       tags:
-        - versa-atende-builder:latest            # Tag mais explícito alinhado ao projeto
-    # O image: aqui não é estritamente necessário para o extends funcionar,
-    # mas ajuda a documentar o nome da imagem gerada.
+        - versa-atende-builder:latest
     image: versa-atende-builder:latest
-    profiles: ["builder"]  
-    # Os volumes e networks não precisam estar aqui se forem definidos nos serviços que herdam.
-    # Apenas o que é comum ao build/imagem deve estar aqui.
+    profiles: ["builder"]
+  
   db:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_APP_USER: ${MYSQL_APP_USER}
-      MYSQL_APP_PASSWORD: ${MYSQL_APP_PASSWORD}
-      MYSQL_MIGRATE_USER: ${MYSQL_MIGRATE_USER}
-      MYSQL_MIGRATE_PASSWORD: ${MYSQL_MIGRATE_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_APP_USER: ${DB_USER}
+      MYSQL_APP_PASSWORD: ${DB_PASS}
+      MYSQL_MIGRATE_USER: ${DB_MIGRATE_USER}
+      MYSQL_MIGRATE_PASSWORD: ${DB_MIGRATE_PASS}
     ports:
-      - "3306:3306"
+      - "${DB_PORT}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./docker/mysql/init.sh:/docker-entrypoint-initdb.d/01-init.sh
@@ -43,23 +39,25 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        NEXT_ENABLED: "false"   # API-only (perfeito pro momento)
+        NEXT_ENABLED: "false"
     image: versa-atende-api-server:latest
     restart: always
     ports:
-      - "3000:3000"
+      - "${PORT}:3000"
     env_file:
       - .env
     environment:
       - NODE_ENV=production
       - NEXT_ENABLED=false
+      # AQUI ESTÁ A MÁGICA: Montamos a URL dinamicamente
+      - DATABASE_URL=mysql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}
     networks:
       - app-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]  # endpoint que já existe!
-      interval: 5s
-      timeout: 3s
-      retries: 10
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/health', (r) => {if (r.statusCode !== 200) process.exit(1); process.exit(0)}).on('error', () => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       start_period: 10s
     depends_on:
       db:
@@ -69,13 +67,14 @@ services:
     container_name: migrate
     extends:
       service: versa-atende-builder-base
-    command: npx prisma migrate deploy       # ← produção: só aplica
+    command: npx prisma migrate deploy
     environment:
-      - DATABASE_URL=mysql://${MYSQL_MIGRATE_USER}:${MYSQL_MIGRATE_PASSWORD}@db:3306/${MYSQL_DATABASE}
+      # Montamos a URL de migração com o usuário privilegiado
+      - DATABASE_URL=mysql://${DB_MIGRATE_USER}:${DB_MIGRATE_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}
     depends_on:
       db:
         condition: service_healthy
-    profiles: ["migrate"]                     # ← só roda quando você quiser
+    profiles: ["migrate"]
     networks:
       - app-network  
 
