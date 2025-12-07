@@ -1,5 +1,5 @@
 services:
-  versa-atende-builder-base:
+  versa-atende-dev-base:
     image: versa-atende-builder:latest
   server:
     # Hot-reload + modo dev
@@ -20,7 +20,7 @@ services:
   broadcast-test:
     container_name: versa-atende-broadcast-test
     extends:
-      service: versa-atende-builder-base
+      service: versa-atende-dev-base
     command: npx tsx scripts/test-broadcast.ts
     environment:
       - SERVER_URL=http://server:3000
@@ -37,7 +37,7 @@ services:
   jest:
     container_name: versa-atende-api-jest
     extends:
-      service: versa-atende-builder-base
+      service: versa-atende-dev-base
     command: npm test -- --watchAll=false  # Run único; mude para --watchAll para modo watch
     environment:
       - NODE_ENV=test

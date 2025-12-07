@@ -1,12 +1,13 @@
 import { env } from './src/server/config/env';
 import { createApp } from './src/server/app';
+import { logger } from './src/server/config/logger'; // Importa logger
 
 // Função principal de execução
 async function main() {
-  console.log('---------------------------------------------------');
-  console.log(`Inicializando Painel de Chamada v1.0`);
-  console.log(`Modo: 'HEADLESS (API Only)'`);
-  console.log('---------------------------------------------------');
+  logger.info('---------------------------------------------------');
+  logger.info(`Inicializando Painel de Chamada v1.0`);
+  logger.info(`Modo: 'HEADLESS (API Only)'`);
+  logger.info('---------------------------------------------------');
 
   try {
     // Cria a aplicação usando a factory
@@ -14,12 +15,12 @@ async function main() {
 
     // Inicia o servidor na porta definida
     httpServer.listen(env.PORT, () => {
-      console.log(`> Server rodando em http://localhost:${env.PORT}`);
+      logger.info(`> Server rodando em http://localhost:${env.PORT}`);
     });
 
     // Graceful shutdown
     const shutdown = () => {
-      console.log('\nEncerrando servidor...');
+      logger.info('\nEncerrando servidor...');
       io.close(() => {
         httpServer.close(() => {
           process.exit(0);
@@ -30,8 +31,8 @@ async function main() {
     process.on('SIGTERM', shutdown);
     process.on('SIGINT', shutdown);
 
-  } catch (err) {
-    console.error('Falha crítica ao iniciar o servidor:', err);
+  } catch (err: any) { // Tipagem explícita para evitar erro de TS
+    logger.error('Falha crítica ao iniciar o servidor:', { error: err.message, stack: err.stack });
     process.exit(1);
   }
 }
@@ -41,5 +42,4 @@ if (require.main === module) {
   main();
 }
 
-// Exporta para casos de uso específicos se necessário (embora createApp seja preferível)
 export { main };

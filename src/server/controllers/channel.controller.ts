@@ -1,8 +1,8 @@
-// src/server/controllers/register.controller.ts
 import { Request, Response } from 'express';
 import { channelSchema } from '../schemas/channel.schema';
 import { prisma } from '../config/prisma';
 import { randomUUID } from 'crypto';
+import { logger } from '../config/logger'; // Importa logger
 
 const REGISTRATION_KEY = process.env.CHANNEL_REGISTRATION_KEY; // chave mestra secreta
 
@@ -12,7 +12,10 @@ export const channelController = async (req: Request, res: Response) => {
 
     // 1. Validação da chave mestra
     if (body.registration_key !== REGISTRATION_KEY) {
-      console.warn('[Register] Chave de registro inválida para slug:', body.slug, "esperado:", REGISTRATION_KEY, "recebido:", body.registration_key);
+      logger.warn('[Register] Chave de registro inválida', { 
+        slug: body.slug, 
+        receivedKey: '***REDACTED***' // Boa prática: não logar senhas/chaves inválidas
+      });
       return res.status(401).json({
         error: 'Unauthorized',
         message: 'Chave de registro inválida',
@@ -48,9 +51,13 @@ export const channelController = async (req: Request, res: Response) => {
       },
     });
 
-    console.log(`[Register] Novo canal registrado: ${channel.slug} (${channel.name})`);
+    logger.info(`[Register] Novo canal registrado`, { 
+      slug: channel.slug, 
+      name: channel.name, 
+      id: channel.id 
+    });
 
-    // 4. Resposta com credenciais (NUNCA mais vai precisar pedir pro admin)
+    // 4. Resposta com credenciais
     return res.status(201).json({
       success: true,
       message: 'Canal registrado com sucesso!',
@@ -75,7 +82,7 @@ export const channelController = async (req: Request, res: Response) => {
       });
     }
 
-    console.error('[Register Error]', error);
+    logger.error('[Register Error]', { error: error.message, stack: error.stack });
     return res.status(500).json({ error: 'Internal Server Error' });
   }
 };

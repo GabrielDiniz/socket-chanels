@@ -1,10 +1,10 @@
-// src/server/controllers/ingest.controller.ts
 import { Request, Response, NextFunction } from 'express';
 import { PayloadFactory } from '../adapters/payload.factory';
 import { SocketService } from '../services/socket.service';
 import { channelService } from '../services/channel.service';
 import { prisma } from '../config/prisma';
 import { CallEntity } from '../domain/call.entity';
+import { logger } from '../config/logger'; // Importa o logger
 
 // -------------------------------------------------------------------
 // 1. Middleware de autenticação por canal (API Key + slug)
@@ -18,6 +18,7 @@ export const authMiddleware = async (
   const channelSlug = req.headers['x-channel-id'] as string;
 
   if (!apiKey || !channelSlug) {
+    logger.warn('[Auth] Tentativa de acesso sem headers obrigatórios', { ip: req.ip });
     res.status(400).json({
       error: 'Bad Request',
       message: 'Headers x-auth-token e x-channel-id são obrigatórios',
@@ -29,6 +30,7 @@ export const authMiddleware = async (
     const channel = await channelService.findByApiKeyAndSlug(apiKey, channelSlug);
 
     if (!channel) {
+      logger.warn(`[Auth] Falha de autenticação: Slug=${channelSlug}`, { ip: req.ip });
       res.status(401).json({
         error: 'Unauthorized',
         message: 'Token ou canal inválido ou inativo',
@@ -36,63 +38,52 @@ export const authMiddleware = async (
       return;
     }
 
-    // Anexa o registro completo do canal à request (evita consultas repetidas)
     (req as any).channel = channel;
     next();
   } catch (err) {
-    console.error('[AuthMiddleware] Erro inesperado:', err);
+    logger.error('[Auth] Erro inesperado no middleware', { error: err });
     res.status(500).json({ error: 'Internal Server Error' });
   }
 };
 
 // -------------------------------------------------------------------
-// 2. Controller principal – fábrica com injeção do SocketService
+// 2. Controller principal
 // -------------------------------------------------------------------
 export const createIngestController = 
   (socketService: SocketService) =>
   async (req: Request, res: Response): Promise<void> => {
     try {
-      // Canal já validado e anexado pelo middleware
       const channel = (req as any).channel;
       const rawPayload = req.body;
 
-      // ----------------------------------------------------------------
-      // Normalização do payload (Strategy + Zod)
-      // ----------------------------------------------------------------
       const normalizedCall: CallEntity = PayloadFactory.create(rawPayload);
 
-      // ----------------------------------------------------------------
-      // Persistência da chamada (histórico + auditoria)
-      // ----------------------------------------------------------------
       const savedCall = await prisma.call.create({
         data: {
           channelId: channel.id,
           patientName: normalizedCall.name,
           destination: normalizedCall.destination,
           professional: normalizedCall.professional ?? null,
-          ticket:
-            normalizedCall.rawSource === 'NovoSGA' ? normalizedCall.name : null,
+          ticket: normalizedCall.rawSource === 'NovoSGA' ? normalizedCall.name : null,
           isPriority: normalizedCall.isPriority,
           sourceSystem: normalizedCall.rawSource,
-          rawPayload: rawPayload as any, // Json do Prisma aceita objeto puro
+          rawPayload: rawPayload as any,
         },
       });
 
-      // ----------------------------------------------------------------
-      // Broadcast em tempo real para todos os clientes na room (slug)
-      // ----------------------------------------------------------------
       socketService.broadcastCall(channel.slug, {
         ...normalizedCall,
-        id: savedCall.id, // garante ID único (cuid) no frontend também
+        id: savedCall.id,
       });
 
-      console.info(
-        `[Ingest] Canal "${channel.slug}" (${channel.name}) → ${normalizedCall.name} → ${normalizedCall.destination}`
-      );
+      // Log estruturado com metadados úteis para análise de tráfego
+      logger.info('Chamada processada', {
+        channel: channel.slug,
+        patient: normalizedCall.name,
+        system: normalizedCall.rawSource,
+        priority: normalizedCall.isPriority
+      });
 
-      // ----------------------------------------------------------------
-      // Resposta de sucesso
-      // ----------------------------------------------------------------
       res.status(200).json({
         success: true,
         data: {
@@ -102,10 +93,8 @@ export const createIngestController =
         },
       });
     } catch (error: any) {
-      console.error('[IngestController] Erro:', error);
-
-      // Erros de validação Zod → 422 Unprocessable Entity
       if (error.name === 'ZodError') {
+        logger.warn('[Ingest] Payload inválido', { errors: error.errors, channel: (req as any).channel?.slug });
         res.status(422).json({
           success: false,
           error: 'Payload inválido',
@@ -114,7 +103,7 @@ export const createIngestController =
         return;
       }
 
-      // Erro genérico de negócio ou estratégia desconhecida
+      logger.error('[Ingest] Erro de processamento', { error: error.message });
       res.status(400).json({
         success: false,
         error: error.message || 'Erro ao processar chamada',

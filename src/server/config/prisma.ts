@@ -1,16 +1,20 @@
-// src/server/config/prisma.ts
 import { PrismaClient } from '@prisma/client';
+import { logger } from './logger';
 
 declare global {
   var prisma: PrismaClient | undefined;
 }
 
-// Evita múltiplas instâncias em hot reload (dev) e mantém singleton em prod
+const logConfig = process.env.NODE_ENV === 'development' 
+  ? ['query', 'info', 'warn', 'error'] 
+  : ['error'];
+
 export const prisma =
   global.prisma ||
   new PrismaClient({
-    log: ['query', 'info', 'warn', 'error'],
+    log: logConfig as any[],
   });
+
 
 if (process.env.NODE_ENV !== 'production') {
   global.prisma = prisma;

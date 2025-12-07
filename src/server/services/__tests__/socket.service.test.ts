@@ -1,83 +1,142 @@
-// src/server/services/__tests__/socket.service.test.ts
-
 import { Server as SocketIOServer } from 'socket.io';
 import { SocketService } from '../socket.service';
+import { logger } from '../../config/logger';
 
-// Mock do socket.io
-const mockIo = {
-  on: jest.fn(),
-  to: jest.fn().mockReturnThis(),
-  emit: jest.fn(),
-  engine: { clientsCount: 5 },
-};
-
-const mockSocket = {
-  id: 'socket-123',
-  join: jest.fn(),
-  on: jest.fn(),
-  emit: jest.fn(),
-};
+// Mock do logger
+jest.mock('../../config/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    debug: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
+}));
 
 describe('Socket Service', () => {
   let socketService: SocketService;
   let mockServer: any;
+  let connectionCallback: Function;
+  let mockSocket: any;
 
   beforeEach(() => {
-    mockServer = mockIo as unknown as SocketIOServer;
+    jest.clearAllMocks();
+
+    mockSocket = {
+      id: 'socket-123',
+      join: jest.fn(),
+      on: jest.fn(),
+      emit: jest.fn(),
+    };
+
+    mockServer = {
+      on: jest.fn((event, cb) => {
+        if (event === 'connection') {
+          connectionCallback = cb;
+        }
+      }),
+      to: jest.fn().mockReturnThis(),
+      emit: jest.fn(),
+    } as unknown as SocketIOServer;
+
+    // Instancia o serviço
     socketService = new SocketService(mockServer);
   });
 
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
   it('Constructor deve inicializar io e setup logs de conexão', () => {
-    expect(mockIo.on).toHaveBeenCalledWith('connection', expect.any(Function));
+    expect(mockServer.on).toHaveBeenCalledWith('connection', expect.any(Function));
   });
 
-  it('Deve logar conexão e join_channel ao receber evento', () => {
-    const connectionHandler = mockIo.on.mock.calls.find(call => call[0] === 'connection')[1];
-    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+  it('Deve logar conexão e registrar eventos do socket ao conectar', () => {
+    // Simula a conexão executando o callback capturado
+    if (connectionCallback) {
+        connectionCallback(mockSocket);
+    } else {
+        fail('Callback de conexão não foi capturado');
+    }
 
-    connectionHandler(mockSocket);
+    // Verifica log de conexão.
+    // Usamos stringContaining para ser menos rígido quanto à formatação exata.
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining('[Socket] Conectado'),
+      expect.any(Object)
+    );
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('[Socket] Conectado: socket-123');
+    // Verifica se registrou os listeners no socket cliente
+    expect(mockSocket.on).toHaveBeenCalledWith('join_channel', expect.any(Function));
+    expect(mockSocket.on).toHaveBeenCalledWith('disconnect', expect.any(Function));
+  });
 
-    const joinHandler = mockSocket.on.mock.calls.find(call => call[0] === 'join_channel')[1];
-    joinHandler('recepcao-01');
+  it('Deve entrar na sala (join) e logar quando cliente emite join_channel', () => {
+    // 1. Conecta
+    if (connectionCallback) {
+        connectionCallback(mockSocket);
+    }
 
+    // Limpa mocks para focar nos logs do evento join
+    (logger.debug as jest.Mock).mockClear();
+
+    // 2. Recupera o callback registrado para 'join_channel'
+    // A implementação do mockSocket.on é: on(event, callback)
+    // Então procuramos a chamada onde o primeiro argumento é 'join_channel'
+    const joinCall = mockSocket.on.mock.calls.find((call: any[]) => call[0] === 'join_channel');
+    
+    if (!joinCall) {
+        fail('Listener para join_channel não foi registrado');
+        return; 
+    }
+    
+    const joinCallback = joinCall[1];
+
+    // 3. Executa o callback simulando o evento do cliente
+    joinCallback('recepcao-01');
+
+    // 4. Verificações
     expect(mockSocket.join).toHaveBeenCalledWith('recepcao-01');
-    expect(consoleLogSpy).toHaveBeenCalledWith('[Socket] socket-123 entrou em: recepcao-01');
-
-    consoleLogSpy.mockRestore();
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('Entrou na sala'),
+      expect.objectContaining({ channel: 'recepcao-01' })
+    );
   });
 
   it('Deve logar disconnect corretamente', () => {
-    const connectionHandler = mockIo.on.mock.calls[0][1];
-    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+    if (connectionCallback) {
+        connectionCallback(mockSocket);
+    }
 
-    connectionHandler(mockSocket);
+    (logger.debug as jest.Mock).mockClear();
 
-    const disconnectHandler = mockSocket.on.mock.calls.find(call => call[0] === 'disconnect')[1];
-    disconnectHandler();
+    const disconnectCall = mockSocket.on.mock.calls.find((call: any[]) => call[0] === 'disconnect');
+    
+    if (!disconnectCall) {
+        fail('Listener para disconnect não foi registrado');
+        return;
+    }
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('[Socket] Desconectado: socket-123');
+    const disconnectCallback = disconnectCall[1];
 
-    consoleLogSpy.mockRestore();
+    disconnectCallback(); // Simula desconexão
+
+    expect(logger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('Desconectado'),
+      expect.objectContaining({ socketId: 'socket-123' })
+    );
   });
 
   it('broadcastCall deve emitir call_update para room específica', () => {
-    socketService.broadcastCall('triagem-02', { patientName: 'João' });
+    const data = { id: '1', name: 'Teste' };
+    socketService.broadcastCall('triagem-02', data);
 
-    expect(mockIo.to).toHaveBeenCalledWith('triagem-02');
-    expect(mockIo.emit).toHaveBeenCalledWith('call_update', { patientName: 'João' });
+    expect(mockServer.to).toHaveBeenCalledWith('triagem-02');
+    expect(mockServer.emit).toHaveBeenCalledWith('call_update', data);
   });
 
   it('Deve não emitir se room inválida (edge case)', () => {
     socketService.broadcastCall('', { test: true });
-    socketService.broadcastCall(null as any, { test: true });
-
-    expect(mockIo.to).not.toHaveBeenCalled();
-    expect(mockIo.emit).not.toHaveBeenCalled();
+    
+    expect(mockServer.to).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Tentativa de broadcast'),
+      expect.any(Object)
+    );
   });
 });

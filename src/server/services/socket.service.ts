@@ -1,5 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
-
+import { logger } from '../config/logger';
+import { channel } from 'diagnostics_channel';
 
 export class SocketService {
   private io: SocketIOServer;
@@ -11,23 +12,28 @@ export class SocketService {
 
   private setupConnectionLogs() {
     this.io.on('connection', (socket) => {
-      console.log(`[Socket] Conectado: ${socket.id}`);
+      logger.debug(`[Socket] Conectado: ${socket.id}`,socket);
       
       socket.on('join_channel', (channelId: string) => {
         socket.join(channelId);
-        console.log(`[Socket] ${socket.id} entrou em: ${channelId}`);
+        logger.debug(`[Socket] ${socket.id} Entrou na sala: ${channelId}`,{channel: channelId, socketId: socket.id});
       });
       
-      socket.on('disconnect', () => console.log(`[Socket] Desconectado: ${socket.id}`));
+      socket.on('disconnect', () => {
+        logger.debug(`[Socket] Desconectado: ${socket.id}`,{socketId: socket.id});
+      });
     });
   }
 
   public broadcastCall(channel: string, data: any) {
     if (!channel || typeof channel !== 'string' || channel.trim() === '') {
-      console.warn('[Socket] Tentativa de broadcast para channel inválido:', channel);
+      logger.warn('[Socket] Tentativa de broadcast para channel inválido', { channel });
       return;
     }
-    this.io.to(channel).emit('call_update', data);
     
+    // Podemos logar nível debug se quisermos ver todo tráfego, ou info apenas em eventos críticos
+    // logger.debug(`[Socket] Broadcasting para ${channel}`, { data });
+    
+    this.io.to(channel).emit('call_update', data);
   }
 }
