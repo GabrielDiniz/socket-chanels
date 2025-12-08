@@ -8,13 +8,32 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Modelo de Sistema Integrador (Hospital, Clínica, etc.)
+model Tenant {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique // ex: hospital-central
+  apiToken    String   @unique // Chave mestra do Tenant para gestão
+  webhookUrl  String?  // Para notificações futuras
+  isActive    Boolean  @default(true) // Kill switch global do cliente
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  channels    Channel[]
+
+  @@map("tenants")
+}
+
 model Channel {
   id        String   @id @default(cuid())
   slug      String   @unique
   name      String
-  apiKey    String   @unique
-  tenant    String?
-  system    String?   // ← NOVO CAMPO (ex: "NovoSGA", "Versa")
+  apiKey    String   @unique // Chave "dumb" para a TV/Totem
+  
+  // Relação com Tenant
+  tenantId  String?  // Opcional na Fase 1 para migração, será obrigatório depois
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

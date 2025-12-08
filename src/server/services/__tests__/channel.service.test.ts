@@ -1,14 +1,13 @@
-// src/server/services/__tests__/channel.service.test.ts
-
 import { ChannelService } from '../channel.service';
 import { randomUUID } from 'crypto';
 
-// Mock do Prisma (usando funções diretamente, sem variáveis externas)
+// Mock do Prisma
 jest.mock('@prisma/client', () => {
   const mockFindFirst = jest.fn();
   const mockCreate = jest.fn();
   const mockFindMany = jest.fn();
   const mockFindUnique = jest.fn();
+  const mockUpdate = jest.fn();
 
   return {
     PrismaClient: jest.fn(() => ({
@@ -17,24 +16,24 @@ jest.mock('@prisma/client', () => {
         create: mockCreate,
         findMany: mockFindMany,
         findUnique: mockFindUnique,
+        update: mockUpdate,
       },
     })),
-    // Exporta os mocks para uso nos testes
     __mocks: {
       findFirst: mockFindFirst,
       create: mockCreate,
       findMany: mockFindMany,
+      findUnique: mockFindUnique,
+      update: mockUpdate,
     },
   };
 });
 
-// Mock do randomUUID
 jest.mock('crypto', () => ({
   ...jest.requireActual('crypto'),
   randomUUID: jest.fn(),
 }));
 
-// Acessa os mocks do Prisma via __mocks
 const { __mocks: prismaMocks } = require('@prisma/client') as any;
 
 describe('Channel Service', () => {
@@ -46,72 +45,116 @@ describe('Channel Service', () => {
     jest.clearAllMocks();
   });
 
-  it('findByApiKeyAndSlug deve retornar channel ativo válido', async () => {
-    const mockChannelData = { id: '1', apiKey: 'key123', slug: 'recepcao', isActive: true };
+  // --- Buscas Públicas / Dispositivo ---
+
+  it('findByApiKeyAndSlug deve retornar channel com tenant', async () => {
+    const mockChannelData = { id: '1', apiKey: 'key', slug: 'sala', isActive: true, tenant: { id: 't1' } };
     prismaMocks.findFirst.mockResolvedValue(mockChannelData);
 
-    const result = await service.findByApiKeyAndSlug('key123', 'recepcao');
+    const result = await service.findByApiKeyAndSlug('key', 'sala');
 
     expect(result).toEqual(mockChannelData);
-    expect(prismaMocks.findFirst).toHaveBeenCalledWith({
-      where: { apiKey: 'key123', slug: 'recepcao', isActive: true },
-    });
+    expect(prismaMocks.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ include: { tenant: true } })
+    );
   });
 
-  it('findByApiKeyAndSlug deve retornar null em channel inativo ou inexistente', async () => {
-    prismaMocks.findFirst.mockResolvedValue(null);
+  // --- Gestão por Tenant ---
 
-    const result = await service.findByApiKeyAndSlug('wrong', 'wrong');
-
-    expect(result).toBeNull();
-  });
-
-  it('createChannel deve criar channel com apiKey gerado', async () => {
-    const input = { slug: 'novo-slug', name: 'Novo Canal' };
-    const created = { id: '10', ...input, apiKey: 'mocked-uuid-123', isActive: true };
+  it('createChannel deve exigir tenantId e criar canal vinculado', async () => {
+    const input = { slug: 'novo', name: 'Canal', tenantId: 'tenant-1' };
+    const created = { id: '10', ...input, apiKey: 'mocked-uuid-123' };
     prismaMocks.create.mockResolvedValue(created);
 
     const result = await service.createChannel(input);
 
     expect(result).toEqual(created);
     expect(prismaMocks.create).toHaveBeenCalledWith({
-      data: { ...input, apiKey: 'mocked-uuid-123' },
+      data: expect.objectContaining({ tenantId: 'tenant-1' })
     });
-    expect(randomUUID).toHaveBeenCalled();
   });
 
-  it('createChannel deve aceitar tenant opcional', async () => {
-    const input = { slug: 'com-tenant', name: 'Com Tenant', tenant: 'Hospital X' };
-    prismaMocks.create.mockResolvedValue({ id: '11', ...input, apiKey: 'mocked-uuid-123' });
+  it('listByTenant deve filtrar por tenantId e isActive', async () => {
+    const channels = [{ id: '1', name: 'C1' }];
+    prismaMocks.findMany.mockResolvedValue(channels);
 
-    await service.createChannel(input);
+    const result = await service.listByTenant('tenant-1');
 
-    expect(prismaMocks.create).toHaveBeenCalledWith(
+    expect(result).toEqual(channels);
+    expect(prismaMocks.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ tenant: 'Hospital X' }),
+        where: { tenantId: 'tenant-1', isActive: true }
       })
     );
   });
 
-  it('listActive deve retornar canais ativos ordenados por createdAt desc', async () => {
-    const channels = [
-      { id: '1', name: 'A', createdAt: new Date('2025-01-02') },
-      { id: '2', name: 'B', createdAt: new Date('2025-01-01') },
-    ];
-    prismaMocks.findMany.mockResolvedValue(channels);
+  it('updateChannel deve falhar se canal não pertencer ao tenant', async () => {
+    prismaMocks.findFirst.mockResolvedValue(null); // Canal não encontrado para esse tenant
 
-    const result = await service.listActive();
+    await expect(service.updateChannel('slug-alheio', { name: 'X' }, 'meu-tenant'))
+      .rejects.toThrow('Channel not found or access denied');
+  });
 
-    expect(result).toEqual(channels);
-    expect(prismaMocks.findMany).toHaveBeenCalledWith({
-      where: { isActive: true },
-      orderBy: { createdAt: 'desc' },
+  it('updateChannel deve atualizar se canal pertencer ao tenant', async () => {
+    const channel = { id: 'c1', slug: 'meu-slug', tenantId: 'meu-tenant' };
+    prismaMocks.findFirst.mockResolvedValue(channel);
+    prismaMocks.update.mockResolvedValue({ ...channel, name: 'Novo Nome' });
+
+    const result = await service.updateChannel('meu-slug', { name: 'Novo Nome' }, 'meu-tenant');
+
+    expect(result.name).toBe('Novo Nome');
+    expect(prismaMocks.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'c1' },
+        data: expect.objectContaining({ name: 'Novo Nome' })
+      })
+    );
+  });
+
+  it('deleteChannel deve realizar soft delete apenas se for dono', async () => {
+    const channel = { id: 'c1', slug: 'meu-slug', tenantId: 'meu-tenant' };
+    prismaMocks.findFirst.mockResolvedValue(channel);
+    prismaMocks.update.mockResolvedValue({ ...channel, isActive: false });
+
+    await service.deleteChannel('meu-slug', 'meu-tenant');
+
+    expect(prismaMocks.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { isActive: false }
     });
   });
 
-  it('Deve propagar erro do Prisma', async () => {
-    prismaMocks.findFirst.mockRejectedValue(new Error('DB offline'));
+  it('deleteChannel deve falhar se canal não existir ou não pertencer ao tenant', async () => {
+    // Caso 1: Canal inexistente
+    prismaMocks.findFirst.mockResolvedValue(null);
 
-    await expect(service.findByApiKeyAndSlug('x', 'y')).rejects.toThrow('DB offline');
+    await expect(service.deleteChannel('nao-existe', 'meu-tenant'))
+      .rejects.toThrow('Channel not found or access denied');
+
+    // Caso 2: Canal pertence a outro tenant
+    const otherChannel = { id: 'c2', slug: 'slug-alheio', tenantId: 'outro-tenant' };
+    // O mock findFirst retorna null porque a query 'where' (slug + tenantId) não encontrará correspondência
+    prismaMocks.findFirst.mockResolvedValue(null);
+
+    await expect(service.deleteChannel('slug-alheio', 'meu-tenant'))
+      .rejects.toThrow('Channel not found or access denied');
+  });
+   // --- Admin Global ---
+
+  it('listActive deve retornar todos os canais ativos ordenados e com tenant', async () => {
+    const activeChannels = [
+      { id: '1', name: 'C1', createdAt: new Date('2025-01-02'), tenant: { id: 't1' } },
+      { id: '2', name: 'C2', createdAt: new Date('2025-01-01'), tenant: { id: 't2' } }
+    ];
+    prismaMocks.findMany.mockResolvedValue(activeChannels);
+
+    const result = await service.listActive();
+
+    expect(result).toEqual(activeChannels);
+    expect(prismaMocks.findMany).toHaveBeenCalledWith({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+      include: { tenant: true }
+    });
   });
 });

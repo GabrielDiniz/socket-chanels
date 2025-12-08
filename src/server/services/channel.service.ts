@@ -1,8 +1,11 @@
-// src/server/services/channel.service.ts
 import { prisma } from '../config/prisma';
 import { randomUUID } from 'crypto';
 
 export class ChannelService {
+  /**
+   * Busca canal por API Key e Slug (Autenticação da TV/Totem)
+   * Continua agnóstico de tenant pois é usado pelo dispositivo final.
+   */
   async findByApiKeyAndSlug(apiKey: string, slug: string) {
     return prisma.channel.findFirst({
       where: {
@@ -10,17 +13,26 @@ export class ChannelService {
         slug,
         isActive: true,
       },
+      include: {
+        tenant: true 
+      }
     });
   }
 
+  /**
+   * Busca por Slug (Uso interno/admin)
+   */
   async findBySlug(slug: string) {
     return prisma.channel.findUnique({
       where: { slug },
+      include: { tenant: true }
     });
   }
 
+  /**
+   * Histórico de chamadas (Público/Frontend)
+   */
   async getHistory(channelSlug: string, limit = 10) {
-    // Primeiro buscamos o ID do canal pelo slug
     const channel = await this.findBySlug(channelSlug);
     
     if (!channel) return null;
@@ -37,11 +49,9 @@ export class ChannelService {
         isPriority: true,
         calledAt: true,
         sourceSystem: true,
-        // Não expomos rawPayload por padrão para economizar banda
       }
     });
 
-    // Mapeia para o formato de entidade simplificado usado no frontend/socket
     return calls.map(c => ({
       id: c.id,
       name: c.patientName,
@@ -53,26 +63,86 @@ export class ChannelService {
     }));
   }
 
+  /**
+   * Criação de Canal (Agora exige vínculo com Tenant)
+   */
   async createChannel(data: {
     slug: string;
     name: string;
-    tenant?: string;
+    tenantId: string; // Obrigatório na camada de serviço
   }) {
     const apiKey = randomUUID();
 
     return prisma.channel.create({
       data: {
-        ...data,
+        slug: data.slug,
+        name: data.name,
         apiKey,
+        tenantId: data.tenantId,
+        isActive: true,
       },
     });
   }
 
-  // Usado no admin futuro
+  /**
+   * Lista todos os canais de um Tenant específico
+   */
+  async listByTenant(tenantId: string) {
+    return prisma.channel.findMany({
+      where: { 
+        tenantId,
+        isActive: true 
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Atualiza canal garantindo isolamento
+   */
+  async updateChannel(slug: string, data: { name?: string }, tenantId: string) {
+    // Primeiro verifica se o canal pertence ao tenant
+    const channel = await prisma.channel.findFirst({
+      where: { slug, tenantId }
+    });
+
+    if (!channel) {
+      throw new Error('Channel not found or access denied');
+    }
+
+    return prisma.channel.update({
+      where: { id: channel.id },
+      data: {
+        ...data,
+        updatedAt: new Date(),
+      }
+    });
+  }
+
+  /**
+   * Deleta (soft delete) canal garantindo isolamento
+   */
+  async deleteChannel(slug: string, tenantId: string) {
+    const channel = await prisma.channel.findFirst({
+      where: { slug, tenantId }
+    });
+
+    if (!channel) {
+      throw new Error('Channel not found or access denied');
+    }
+
+    return prisma.channel.update({
+      where: { id: channel.id },
+      data: { isActive: false }
+    });
+  }
+
+  // Admin global (Backoffice)
   async listActive() {
     return prisma.channel.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'desc' },
+      include: { tenant: true }
     });
   }
 }

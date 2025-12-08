@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { createIngestController, authMiddleware } from '../ingest.controller';
+import { createIngestController, authMiddleware } from '../../controllers/ingest.controller';
 import { prisma } from '../../config/prisma';
 import { PayloadFactory } from '../../adapters/payload.factory';
 import { channelService } from '../../services/channel.service';

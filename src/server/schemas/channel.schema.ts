@@ -1,4 +1,3 @@
-// src/server/schemas/register.schema.ts
 import { z } from 'zod';
 
 export const channelSchema = z.object({
@@ -7,9 +6,10 @@ export const channelSchema = z.object({
     .min(3)
     .max(50),
   name: z.string().min(1).max(100),
-  system: z.string().min(1).max(50), // ex: "NovoSGA", "VersaSaude"
-  tenant: z.string().optional(),
-  // Chave secreta compartilhada entre você e o integrador (configurada fora do código)
+  // Removido 'system' pois agora usamos tenantId
+  tenantId: z.string().optional(), 
+  
+  // Chave secreta compartilhada
   registration_key: z.string().min(10),
 });
 

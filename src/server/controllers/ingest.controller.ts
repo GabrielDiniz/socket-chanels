@@ -27,6 +27,7 @@ export const authMiddleware = async (
   }
 
   try {
+    // Busca o canal e INCLUI o tenant para verificar status
     const channel = await channelService.findByApiKeyAndSlug(apiKey, channelSlug);
 
     if (!channel) {
@@ -34,6 +35,19 @@ export const authMiddleware = async (
       res.status(401).json({
         error: 'Unauthorized',
         message: 'Token ou canal inválido ou inativo',
+      });
+      return;
+    }
+
+    // KILL SWITCH: Verifica se o Tenant dono do canal está ativo
+    if (channel.tenant && !channel.tenant.isActive) {
+      logger.warn(`[Auth] Acesso negado: Tenant inativo (Slug=${channelSlug})`, { 
+        tenant: channel.tenant.name,
+        ip: req.ip 
+      });
+      res.status(403).json({ // 403 Forbidden é mais semântico para "autenticado mas bloqueado"
+        error: 'Forbidden',
+        message: 'Acesso suspenso para este contratante',
       });
       return;
     }
@@ -97,7 +111,7 @@ export const createIngestController =
     } catch (error: any) {
       // Caso 1: Erro de Validação do Zod (422)
       if (error.name === 'ZodError') {
-        logger.warn('[Ingest] Payload inválido', { errors: error.errors, channel: (req as any).channel?.slug });
+        logger.warn('[Ingest] Payload inválido', { errors: error.errors, channel: (req as any).channel });
         res.status(422).json({
           success: false,
           error: 'Payload inválido',

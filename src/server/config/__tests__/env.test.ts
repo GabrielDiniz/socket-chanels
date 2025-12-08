@@ -38,7 +38,7 @@ describe('Env Config', () => {
       CORS_ORIGIN: 'https://example.com',
       NEXT_ENABLED: 'false',
       DATABASE_URL: 'mysql://user:pass@host:3306/db',
-      CHANNEL_REGISTRATION_KEY: 'validkey123456',
+      API_SECRET: 'validkey123456',
     };
 
     // Import deve suceder sem throw
@@ -60,7 +60,7 @@ describe('Env Config', () => {
     process.env = {
       PORT: 'invalid',
       DATABASE_URL: 'invalid-url',
-      CHANNEL_REGISTRATION_KEY: 'short',
+      API_SECRET: 'short',
     };
 
     // Import deve falhar com throw (simulando exit)
@@ -77,7 +77,7 @@ describe('Env Config', () => {
       CORS_ORIGIN: '*',
       NEXT_ENABLED: 'true',
       DATABASE_URL: 'mysql://user:pass@host:3306/db',
-      CHANNEL_REGISTRATION_KEY: 'supersecretkey12345',
+      API_SECRET: 'supersecretkey12345',
     };
 
     await expect(import('../env')).resolves.toBeDefined();
@@ -89,33 +89,16 @@ describe('Env Config', () => {
     }
   });
 
-  it('Deve permitir API_SECRET como opcional (mesmo com valor no .env)', async () => {
+  it('Deve validar API_SECRET com mínimo de 10 chars', async () => {
+    jest.mock('dotenv');
+    jest.mock('dotenv/config', () => {});
     process.env = {
       PORT: '3000',
       NODE_ENV: 'development',
       CORS_ORIGIN: '*',
       NEXT_ENABLED: 'false',
       DATABASE_URL: 'mysql://user:pass@host:3306/db',
-      CHANNEL_REGISTRATION_KEY: 'validkey123456',
-    };
-
-    await expect(import('../env')).resolves.toBeDefined();
-
-    const result = envSchema.safeParse(process.env);
-    expect(isSuccess(result)).toBe(true);
-    if (isSuccess(result)) {
-      expect(typeof result.data.API_SECRET).toBe('string'); // Valor do .env
-    }
-  });
-
-  it('Deve validar CHANNEL_REGISTRATION_KEY com mínimo de 10 chars', async () => {
-    process.env = {
-      PORT: '3000',
-      NODE_ENV: 'development',
-      CORS_ORIGIN: '*',
-      NEXT_ENABLED: 'false',
-      DATABASE_URL: 'mysql://user:pass@host:3306/db',
-      CHANNEL_REGISTRATION_KEY: 'short',
+      API_SECRET: 'short',
     };
 
     await expect(import('../env')).rejects.toThrow('Exited with code 1');
@@ -130,7 +113,7 @@ describe('Env Config', () => {
       NODE_ENV: 'production',
       CORS_ORIGIN: '*',
       NEXT_ENABLED: 'false',
-      CHANNEL_REGISTRATION_KEY: 'validkey123456',
+      API_SECRET: 'validkey123456',
       // Variáveis atômicas fornecidas, mas DATABASE_URL ausente
       DB_HOST: 'localhost',
       DB_PORT: '3306',
@@ -156,7 +139,7 @@ describe('Env Config', () => {
       NODE_ENV: 'production',
       CORS_ORIGIN: '*',
       NEXT_ENABLED: 'false',
-      CHANNEL_REGISTRATION_KEY: 'validkey123456',
+      API_SECRET: 'validkey123456',
       // Sem DATABASE_URL e sem as variáveis atômicas completas
       DB_HOST: 'localhost',
       // Faltam DB_USER, DB_PASS, DB_NAME propositalmente para forçar erro

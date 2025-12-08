@@ -1,0 +1,172 @@
+openapi: 3.0.0
+info:
+  title: Painel de Chamadas API
+  description: API para gestão de Digital Signage Hospitalar (Multi-tenant)
+  version: 1.1.0
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Servidor Local
+
+components:
+  securitySchemes:
+    AdminApiKey:
+      type: apiKey
+      in: header
+      name: x-admin-key
+    TenantToken:
+      type: apiKey
+      in: header
+      name: x-tenant-token
+    ChannelAuth:
+      type: apiKey
+      in: header
+      name: x-auth-token
+
+paths:
+  # --- ADMIN ---
+  /admin/tenants:
+    get:
+      summary: Listar Tenants
+      security:
+        - AdminApiKey: []
+      responses:
+        '200':
+          description: Lista de tenants
+    post:
+      summary: Criar Tenant
+      security:
+        - AdminApiKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+                webhookUrl:
+                  type: string
+      responses:
+        '201':
+          description: Tenant criado com sucesso
+
+  /admin/tenants/{id}/rotate-key:
+    post:
+      summary: Rotacionar Chave do Tenant
+      security:
+        - AdminApiKey: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Nova chave gerada
+
+  # --- TENANT ---
+  /tenant/channels:
+    get:
+      summary: Listar Canais do Tenant
+      security:
+        - TenantToken: []
+      responses:
+        '200':
+          description: Lista de canais
+    post:
+      summary: Criar Canal
+      security:
+        - TenantToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+      responses:
+        '201':
+          description: Canal criado
+
+  /tenant/channels/{slug}:
+    patch:
+      summary: Editar Canal
+      security:
+        - TenantToken: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+      responses:
+        '200':
+          description: Canal atualizado
+    delete:
+      summary: Deletar Canal
+      security:
+        - TenantToken: []
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Canal deletado
+
+  # --- INGESTÃO ---
+  /chamada:
+    post:
+      summary: Enviar Chamada (Ingestão)
+      security:
+        - ChannelAuth: []
+      parameters:
+        - in: header
+          name: x-channel-id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Payload Versa ou NovoSGA
+      responses:
+        '200':
+          description: Chamada processada
+        '403':
+          description: Tenant inativo (Kill Switch)
+
+  # --- PÚBLICO ---
+  /channels/{slug}/history:
+    get:
+      summary: Histórico de Chamadas
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Histórico recente

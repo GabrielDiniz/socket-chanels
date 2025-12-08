@@ -19,8 +19,7 @@ export const envSchema = z.object({
   // DATABASE_URL final
   DATABASE_URL: z.string().url().optional(),
 
-  API_SECRET: z.string().optional(),
-  CHANNEL_REGISTRATION_KEY: z.string().min(10).default('supersecretkey12345'),
+  API_SECRET: z.string().min(10).default('supersecretkey12345'),
 });
 
 const _env = envSchema.safeParse(process.env);

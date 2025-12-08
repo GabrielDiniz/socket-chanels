@@ -1,44 +1,55 @@
 import { SocketService } from '../../services/socket.service';
 
+// Definição do Mock HOISTED (fora do ciclo de vida do jest)
+const mockRouter = {
+  post: jest.fn(),
+  get: jest.fn(),
+  use: jest.fn(),
+  patch: jest.fn(),  // Adicionado
+  delete: jest.fn(), // Adicionado
+};
+
+// Mock manual do Express Router usando a variável hoisted
+jest.mock('express', () => ({
+  __esModule: true,
+  Router: jest.fn(() => mockRouter),
+}));
+
 // Mock dos controllers
 jest.mock('../../controllers/channel.controller', () => ({
   __esModule: true,
-  channelController: jest.fn((req, res) => res.end()),
+  channelController: {
+    create: jest.fn((req, res) => res.end()), // Mock do método create
+  },
 }));
 
 jest.mock('../../controllers/ingest.controller', () => ({
   __esModule: true,
   authMiddleware: jest.fn((req, res, next) => next()),
-  // Retorna uma função (RequestHandler) para satisfazer o Router
   createIngestController: jest.fn().mockReturnValue((req: any, res: any) => res.end()),
 }));
 
-// Mock do novo controller de histórico
 jest.mock('../../controllers/history.controller', () => ({
   __esModule: true,
   getChannelHistory: jest.fn((req, res) => res.end()),
 }));
 
+// Mock das rotas filhas
+jest.mock('../admin.routes', () => ({
+  adminRoutes: function mockAdminRoutes(req: any, res: any, next: any) { next(); }
+}));
+
+jest.mock('../tenant.routes', () => ({
+  tenantRoutes: function mockTenantRoutes(req: any, res: any, next: any) { next(); }
+}));
+
 describe('Routes', () => {
-  let routerMock: any;
   let mockSocketService: SocketService;
   let createRoutes: any;
 
   beforeEach(() => {
-    jest.resetModules();
-
-    // ADICIONADO: mock para o método get
-    routerMock = {
-      post: jest.fn(),
-      get: jest.fn(),
-    };
+    jest.clearAllMocks();
     
-    // Mock manual do Express Router
-    jest.mock('express', () => ({
-      __esModule: true,
-      Router: jest.fn(() => routerMock),
-    }));
-
     // Importa o módulo sob teste
     const routesModule = require('../index');
     createRoutes = routesModule.createRoutes;
@@ -46,14 +57,22 @@ describe('Routes', () => {
     mockSocketService = {} as SocketService;
   });
 
-  it('createRoutes deve registrar POST /register com channelController', () => {
-    const { channelController } = require('../../controllers/channel.controller');
+  it('createRoutes deve registrar rotas de admin e tenant', () => {
+    const { adminRoutes } = require('../admin.routes');
+    const { tenantRoutes } = require('../tenant.routes');
     
     createRoutes(mockSocketService);
+    
+    expect(mockRouter.use).toHaveBeenCalledWith('/admin', adminRoutes);
+    expect(mockRouter.use).toHaveBeenCalledWith('/tenant', tenantRoutes);
+  });
 
-    expect(routerMock.post).toHaveBeenCalledWith(
+  it('createRoutes deve registrar POST /register com channelController.create', () => {
+    createRoutes(mockSocketService);
+
+    expect(mockRouter.post).toHaveBeenCalledWith(
       '/register',
-      channelController
+      expect.any(Function) // Agora é uma arrow function wrapper
     );
   });
 
@@ -64,8 +83,7 @@ describe('Routes', () => {
 
     expect(createIngestController).toHaveBeenCalledWith(mockSocketService);
 
-    // O terceiro argumento é o resultado de createIngestController(), que é a função retornada pelo mock
-    expect(routerMock.post).toHaveBeenCalledWith(
+    expect(mockRouter.post).toHaveBeenCalledWith(
       '/chamada',
       authMiddleware,
       expect.any(Function)
@@ -77,7 +95,7 @@ describe('Routes', () => {
 
     createRoutes(mockSocketService);
 
-    expect(routerMock.get).toHaveBeenCalledWith(
+    expect(mockRouter.get).toHaveBeenCalledWith(
       '/channels/:slug/history',
       getChannelHistory
     );

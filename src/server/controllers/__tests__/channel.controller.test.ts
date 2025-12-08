@@ -1,58 +1,41 @@
 import { Request, Response } from 'express';
-// Não importamos estaticamente o controller ou o schema para evitar cache com env antigo
-// import { channelController } from '../channel.controller'; 
+// Importação dinâmica do controller para evitar cache de mocks
+// import { channelController } from '../channel.controller';
 
 // Mocks globais (hoisted)
-jest.mock('../../config/prisma', () => ({
-  __esModule: true,
-  prisma: {
-    channel: {
-      findUnique: jest.fn(),
-      create: jest.fn(),
-    },
+jest.mock('../../services/channel.service', () => ({
+  channelService: {
+    listByTenant: jest.fn(),
+    createChannel: jest.fn(),
+    updateChannel: jest.fn(),
+    deleteChannel: jest.fn(),
   },
 }));
 
-jest.mock('../../schemas/channel.schema', () => ({
-  __esModule: true,
-  channelSchema: {
-    parse: jest.fn(),
+// Mock do logger para evitar poluição no console
+jest.mock('../../config/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
   },
-}));
-
-jest.mock('crypto', () => ({
-  __esModule: true,
-  randomUUID: jest.fn(),
 }));
 
 describe('Channel Controller', () => {
   let req: Partial<Request>;
-  let res: Partial<Response>;
+  let res: Response;
+  let next: jest.Mock;
   let jsonMock: jest.Mock;
   let statusMock: jest.Mock;
   let channelController: any;
-  let prismaMock: any;
-  let schemaMock: any;
-  let cryptoMock: any;
-
-  const MOCK_REG_KEY = 'secret12345';
+  let serviceMock: any;
 
   beforeEach(async () => {
-    // 1. Limpa o cache de módulos
     jest.resetModules();
     
-    // 2. Configura a variável de ambiente
-    process.env.CHANNEL_REGISTRATION_KEY = MOCK_REG_KEY;
-
-    // 3. Re-importa dependências e o módulo sob teste
-    const prismaModule = require('../../config/prisma');
-    prismaMock = prismaModule.prisma;
-    
-    const schemaModule = require('../../schemas/channel.schema');
-    schemaMock = schemaModule.channelSchema;
-
-    const cryptoModule = require('crypto');
-    cryptoMock = cryptoModule;
+    // Re-importa dependências
+    const serviceModule = require('../../services/channel.service');
+    serviceMock = serviceModule.channelService;
 
     const controllerModule = await require('../channel.controller');
     channelController = controllerModule.channelController;
@@ -66,109 +49,172 @@ describe('Channel Controller', () => {
       json: jsonMock,
     } as unknown as Response;
 
-    req = { body: {} };
-  });
-
-  afterEach(() => {
-    delete process.env.CHANNEL_REGISTRATION_KEY;
-  });
-
-  it('Deve retornar 401 em registration_key inválida', async () => {
-    schemaMock.parse.mockReturnValue({
-      slug: 'teste',
-      registration_key: 'wrong-key',
-    });
-
-    await channelController(req as Request, res as Response);
-
-    expect(statusMock).toHaveBeenCalledWith(401);
-    expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'Unauthorized',
-    }));
-  });
-
-  it('Deve retornar 409 em slug já existente', async () => {
-    schemaMock.parse.mockReturnValue({
-      slug: 'slug-existente',
-      registration_key: MOCK_REG_KEY, // Chave correta
-    });
-
-    prismaMock.channel.findUnique.mockResolvedValue({ id: '1', slug: 'slug-existente' });
-
-    await channelController(req as Request, res as Response);
-
-    expect(statusMock).toHaveBeenCalledWith(409);
-    expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({
-      error: 'Conflict',
-    }));
-  });
-
-  it('Deve criar channel novo e retornar com apiKey e instructions', async () => {
-    const input = {
-      slug: 'novo-canal',
-      name: 'Novo Canal',
-      system: 'Versa',
-      registration_key: MOCK_REG_KEY,
+    // Simula um request autenticado por um Tenant
+    req = { 
+      body: {},
+      tenant: { id: 'tenant-123', name: 'Tenant Teste', slug: 'tenant-teste' }
     };
+  });
 
-    schemaMock.parse.mockReturnValue(input);
-    prismaMock.channel.findUnique.mockResolvedValue(null);
-    cryptoMock.randomUUID.mockReturnValue('new-uuid-key');
-    
-    prismaMock.channel.create.mockResolvedValue({
-      id: 'new-id',
-      slug: input.slug,
-      name: input.name,
-      apiKey: 'new-uuid-key',
-      tenant: 'Versa',
-      isActive: true,
+  describe('list', () => {
+    it('Deve listar canais do tenant autenticado (200)', async () => {
+      const mockChannels = [
+        { slug: 'c1', name: 'Canal 1', apiKey: 'k1', isActive: true, createdAt: new Date() }
+      ];
+      serviceMock.listByTenant.mockResolvedValue(mockChannels);
+
+      await channelController.list(req as Request, res);
+
+      expect(serviceMock.listByTenant).toHaveBeenCalledWith('tenant-123');
+      expect(res.json).toHaveBeenCalledWith({
+        success: true,
+        channels: expect.arrayContaining([
+          expect.objectContaining({ slug: 'c1' })
+        ])
+      });
     });
 
-    await channelController(req as Request, res as Response);
-
-    expect(prismaMock.channel.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        slug: input.slug,
-        apiKey: 'new-uuid-key',
-        tenant: 'Versa',
-      }),
-    });
-
-    expect(statusMock).toHaveBeenCalledWith(201);
-    expect(jsonMock).toHaveBeenCalledWith({
-      success: true,
-      message: 'Canal registrado com sucesso!',
-      channel: expect.objectContaining({
-        apiKey: 'new-uuid-key',
-        instructions: expect.any(Object),
-      }),
+    it('Deve retornar 500 em erro interno', async () => {
+      serviceMock.listByTenant.mockRejectedValue(new Error('DB Fail'));
+      await channelController.list(req as Request, res);
+      expect(statusMock).toHaveBeenCalledWith(500);
     });
   });
 
-  it('Deve retornar 400 em erro Zod (body inválido)', async () => {
-    const zodError = new Error('Zod Error');
-    (zodError as any).name = 'ZodError';
-    (zodError as any).errors = [{ message: 'Field required' }];
-    
-    schemaMock.parse.mockImplementation(() => {
-      throw zodError;
+  describe('create', () => {
+    it('Deve criar canal vinculado ao tenant (201)', async () => {
+      req.body = { slug: 'novo-canal', name: 'Novo Canal' };
+      const mockCreated = { ...req.body, apiKey: 'new-key', isActive: true };
+      
+      serviceMock.createChannel.mockResolvedValue(mockCreated);
+
+      await channelController.create(req as Request, res);
+
+      expect(serviceMock.createChannel).toHaveBeenCalledWith({
+        ...req.body,
+        tenantId: 'tenant-123'
+      });
+      expect(statusMock).toHaveBeenCalledWith(201);
+      expect(jsonMock).toHaveBeenCalledWith({
+        success: true,
+        channel: expect.objectContaining({ slug: 'novo-canal' })
+      });
     });
 
-    await channelController(req as Request, res as Response);
+    it('Deve retornar 400 se body inválido (Zod)', async () => {
+      req.body = { slug: 'Inválido!', name: '' }; // Slug com chars especiais, nome vazio
+      await channelController.create(req as Request, res);
+      expect(statusMock).toHaveBeenCalledWith(400);
+      expect(serviceMock.createChannel).not.toHaveBeenCalled();
+    });
 
-    expect(statusMock).toHaveBeenCalledWith(400);
+    it('Deve retornar 409 se slug duplicado (P2002)', async () => {
+      req.body = { slug: 'duplicado', name: 'Teste' };
+      const err = new Error('Unique constraint');
+      (err as any).code = 'P2002';
+      
+      serviceMock.createChannel.mockRejectedValue(err);
+
+      await channelController.create(req as Request, res);
+      expect(statusMock).toHaveBeenCalledWith(409);
+    });
+
+    it('Deve retornar 500 em caso de erro genérico', async () => {
+      req.body = { slug: 'erro-500', name: 'Erro' };
+      serviceMock.createChannel.mockRejectedValue(new Error('Unexpected Error'));
+
+      await channelController.create(req as Request, res);
+
+      expect(statusMock).toHaveBeenCalledWith(500);
+      expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({
+        error: 'Internal Server Error'
+      }));
+    });
   });
 
-  it('Deve tratar erros internos com 500', async () => {
-    schemaMock.parse.mockReturnValue({
-      slug: 'erro',
-      registration_key: MOCK_REG_KEY,
+  describe('update', () => {
+    it('Deve atualizar canal do tenant (200)', async () => {
+      req.params = { slug: 'meu-canal' };
+      req.body = { name: 'Editado' };
+      
+      serviceMock.updateChannel.mockResolvedValue({ slug: 'meu-canal', name: 'Editado' });
+
+      await channelController.update(req as Request, res);
+
+      expect(serviceMock.updateChannel).toHaveBeenCalledWith('meu-canal', req.body, 'tenant-123');
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+        success: true,
+        channel: expect.objectContaining({ name: 'Editado' })
+      }));
     });
-    
-    prismaMock.channel.findUnique.mockRejectedValue(new Error('DB Down'));
 
-    await channelController(req as Request, res as Response);
+    it('Deve retornar 404 se canal não existir ou pertencer a outro tenant', async () => {
+      req.params = { slug: 'alheio' };
+      req.body = { name: 'X' };
+      
+      serviceMock.updateChannel.mockRejectedValue(new Error('Channel not found or access denied'));
 
-    expect(statusMock).toHaveBeenCalledWith(500);
+      await channelController.update(req as Request, res);
+      expect(statusMock).toHaveBeenCalledWith(404);
+    });
+
+    it('Deve retornar 400 em caso de falha na validação (ZodError)', async () => {
+      req.params = { slug: 'meu-canal' };
+      // Nome vazio viola o schema .min(1)
+      req.body = { name: '' }; 
+
+      await channelController.update(req as Request, res);
+
+      expect(statusMock).toHaveBeenCalledWith(400);
+      expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({
+        error: 'Bad Request'
+      }));
+      expect(serviceMock.updateChannel).not.toHaveBeenCalled();
+    });
+
+    it('Deve retornar 500 em caso de erro genérico', async () => {
+      req.params = { slug: 'meu-canal' };
+      req.body = { name: 'Update Falho' };
+      
+      serviceMock.updateChannel.mockRejectedValue(new Error('DB connection failed'));
+
+      await channelController.update(req as Request, res);
+
+      expect(statusMock).toHaveBeenCalledWith(500);
+      expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({
+        error: 'Internal Server Error'
+      }));
+    });
+  });
+
+  describe('delete', () => {
+    it('Deve deletar canal do tenant (200)', async () => {
+      req.params = { slug: 'lixo' };
+      
+      await channelController.delete(req as Request, res);
+
+      expect(serviceMock.deleteChannel).toHaveBeenCalledWith('lixo', 'tenant-123');
+      expect(statusMock).toHaveBeenCalledWith(200);
+    });
+
+    it('Deve retornar 404 se canal não for do tenant', async () => {
+      req.params = { slug: 'alheio' };
+      serviceMock.deleteChannel.mockRejectedValue(new Error('Channel not found or access denied'));
+
+      await channelController.delete(req as Request, res);
+      expect(statusMock).toHaveBeenCalledWith(404);
+    });
+
+    it('Deve retornar 500 em caso de erro genérico', async () => {
+      req.params = { slug: 'lixo' };
+      serviceMock.deleteChannel.mockRejectedValue(new Error('Critical DB Fail'));
+
+      await channelController.delete(req as Request, res);
+
+      expect(statusMock).toHaveBeenCalledWith(500);
+      expect(jsonMock).toHaveBeenCalledWith(expect.objectContaining({
+        error: 'Internal Server Error'
+      }));
+    });
   });
 });
