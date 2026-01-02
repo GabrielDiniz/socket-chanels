@@ -38,7 +38,7 @@ export const createMockChannel = async (overrides: any = {}) => {
 };
 
 // Helper para aguardar (sleep) - útil para testes assíncronos de socket
-//export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Helper para criar cliente de socket de teste
 export const createSocketClient = (port: number): ClientSocket => {

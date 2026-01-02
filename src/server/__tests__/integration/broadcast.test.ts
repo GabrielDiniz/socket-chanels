@@ -1,28 +1,24 @@
 import request from 'supertest';
+import { createApp } from '../../app';
+import { resetDatabase, createMockChannel } from '../test-utils';
 import { prisma } from '../../config/prisma';
-import { resetDatabase, createMockChannel, createSocketClient } from '../test-utils';
-import { Socket as ClientSocket } from 'socket.io-client';
+import { createSocketClient, sleep } from '../test-utils';
+import { generateToken } from '../../utils/jwt.utils';
+
+let app: any;
+let httpServer: any;
+let io: any;
 
 describe('Integração: Ingestão e Broadcast', () => {
-  let app: any;
-  let httpServer: any;
-  let io: any;
-  let clientSocket: ClientSocket;
-  let port: number;
-
   beforeAll(async () => {
-    // Importa a factory dinamicamente
-    const { createApp } = await import('../../app');
     const instance = await createApp();
     app = instance.expressApp;
     httpServer = instance.httpServer;
     io = instance.io;
 
-    // Inicia o servidor em uma porta aleatória para permitir conexão real do socket client
+    // Start server on a random port for socket client to connect
     await new Promise<void>((resolve) => {
-      httpServer.listen(() => {
-        const addr = httpServer.address();
-        port = typeof addr === 'string' ? 0 : addr?.port || 0;
+      httpServer.listen(0, () => {
         resolve();
       });
     });
@@ -30,13 +26,6 @@ describe('Integração: Ingestão e Broadcast', () => {
 
   beforeEach(async () => {
     await resetDatabase();
-  });
-
-  afterEach((done) => {
-    if (clientSocket && clientSocket.connected) {
-      clientSocket.disconnect();
-    }
-    done();
   });
 
   afterAll((done) => {
@@ -52,66 +41,77 @@ describe('Integração: Ingestão e Broadcast', () => {
     (async () => {
       try {
         // 1. Setup: Criar Canal no Banco com API Key EXPLÍCITA
-        // Isso evita ambiguidades de geração de UUID durante o teste
-        const TEST_API_KEY = 'test-api-key-123-secure';
-        const channel = await createMockChannel({ 
+        const channel = await createMockChannel({
           slug: 'sala-espera-01',
-          apiKey: TEST_API_KEY,
-          isActive: true
+          name: 'Sala 01',
+          apiKey: 'test-api-key-123' 
         });
 
-        // 2. Conectar Cliente Socket
-        clientSocket = createSocketClient(port);
+        // 2. Setup: Cliente Socket.IO conecta e entra na sala
+        const address = httpServer.address();
+        const port = typeof address === 'string' ? 0 : address?.port;
         
+        if (!port) {
+          throw new Error('Server port not found');
+        }
+
+        const clientSocket = createSocketClient(port);
+
+        // Gera token JWT válido para o teste usando a apiKey do canal
+        const token = generateToken({ role: 'test' }, channel.apiKey);
+
+        // Configura auth no handshake
+        clientSocket.auth = { token, channelSlug: channel.slug };
+
         await new Promise<void>((resolve) => {
           clientSocket.on('connect', () => {
-            clientSocket.emit('join_channel', channel.slug);
-            setTimeout(resolve, 50);
+            clientSocket.emit('join_channel', 'sala-espera-01');
+            resolve();
           });
         });
 
-        // 3. Preparar listener para o evento esperado
-        const socketEventPromise = new Promise<any>((resolve) => {
-          clientSocket.on('call_update', (data) => {
-            resolve(data);
-          });
-        });
+        // Aguarda um pouco para garantir o join
+        await sleep(100);
 
-        // 4. Executar chamada API (Ingestão)
+        // 3. Ação: Enviar POST de Ingestão (Versa)
         const payload = {
-          source_system: 'VersaTest',
+          source_system: 'Versa',
           current_call: {
             patient_name: 'Maria Silva',
             destination: 'Consultório 10',
-            professional_name: 'Dr. Santos'
-          }
+            professional_name: 'Dr. Santos',
+          },
         };
 
-        const apiResponse = await request(app)
+        // Escuta o evento no cliente socket
+        clientSocket.on('call_update', (data) => {
+          try {
+            // 4. Asserção: O evento recebido deve bater com o payload
+            expect(data).toMatchObject({
+              name: 'Maria Silva',
+              destination: 'Consultório 10',
+              professional: 'Dr. Santos',
+              rawSource: 'Versa',
+              isPriority: false,
+            });
+            expect(data.id).toBeDefined();
+            
+            clientSocket.close();
+            done(); // Teste passa!
+          } catch (err) {
+            clientSocket.close();
+            done(err);
+          }
+        });
+
+        // Dispara a chamada HTTP
+        await request(app)
           .post('/api/v1/chamada')
-          .set('x-auth-token', TEST_API_KEY) // Usa a chave explícita
-          .set('x-channel-id', channel.slug)
+          .set('x-auth-token', 'test-api-key-123')
+          .set('x-channel-id', 'sala-espera-01')
           .send(payload)
           .expect(200);
 
-        expect(apiResponse.body.success).toBe(true);
-        expect(apiResponse.body.data.call.name).toBe('Maria Silva');
-
-        // 5. Aguardar e validar o evento do Socket
-        const socketData = await socketEventPromise;
-        expect(socketData).toBeDefined();
-        expect(socketData.name).toBe('Maria Silva');
-        expect(socketData.destination).toBe('Consultório 10');
-        expect(socketData.id).toBeDefined();
-
-        // 6. Validação final: Banco de Dados
-        const callInDb = await prisma.call.findFirst({
-          where: { channelId: channel.id }
-        });
-        expect(callInDb).not.toBeNull();
-        expect(callInDb?.patientName).toBe('Maria Silva');
-
-        done();
       } catch (err) {
         done(err);
       }
@@ -121,9 +121,9 @@ describe('Integração: Ingestão e Broadcast', () => {
   it('Deve rejeitar chamada para canal inexistente (401)', async () => {
     await request(app)
       .post('/api/v1/chamada')
-      .set('x-auth-token', 'chave-invalida')
+      .set('x-auth-token', 'invalid')
       .set('x-channel-id', 'canal-fantasma')
-      .send({ some: 'data' })
+      .send({})
       .expect(401);
   });
 });

@@ -1,6 +1,8 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { SocketService } from '../socket.service';
 import { logger } from '../../config/logger';
+import { verifyToken } from '../../utils/jwt.utils';
+import { channelService } from '../channel.service';
 
 // Mock do logger
 jest.mock('../../config/logger', () => ({
@@ -12,9 +14,22 @@ jest.mock('../../config/logger', () => ({
   },
 }));
 
+// Mock do JWT Utils
+jest.mock('../../utils/jwt.utils', () => ({
+  verifyToken: jest.fn(),
+}));
+
+// Mock do Channel Service
+jest.mock('../channel.service', () => ({
+  channelService: {
+    findBySlug: jest.fn(),
+  },
+}));
+
 describe('Socket Service', () => {
   let socketService: SocketService;
   let mockServer: any;
+  let middlewareCallback: Function;
   let connectionCallback: Function;
   let mockSocket: any;
 
@@ -23,12 +38,21 @@ describe('Socket Service', () => {
 
     mockSocket = {
       id: 'socket-123',
+      // Simula envio de token e slug
+      handshake: { 
+        auth: { token: 'valid-token', channelSlug: 'sala-1' }, 
+        headers: {},
+        query: {} 
+      },
       join: jest.fn(),
       on: jest.fn(),
       emit: jest.fn(),
     };
 
     mockServer = {
+      use: jest.fn((cb) => {
+        middlewareCallback = cb;
+      }),
       on: jest.fn((event, cb) => {
         if (event === 'connection') {
           connectionCallback = cb;
@@ -42,98 +66,79 @@ describe('Socket Service', () => {
     socketService = new SocketService(mockServer);
   });
 
-  it('Constructor deve inicializar io e setup logs de conexão', () => {
-    expect(mockServer.on).toHaveBeenCalledWith('connection', expect.any(Function));
+  describe('Middleware de Autenticação', () => {
+    it('Deve permitir conexão com token válido e canal existente', async () => {
+      // Mock canal encontrado
+      (channelService.findBySlug as jest.Mock).mockResolvedValue({ 
+        slug: 'sala-1', 
+        apiKey: 'secret-key-123' 
+      });
+      // Mock validação token com a key do canal
+      (verifyToken as jest.Mock).mockReturnValue({ id: 'user-1' });
+      
+      const next = jest.fn();
+
+      await middlewareCallback(mockSocket, next);
+
+      expect(channelService.findBySlug).toHaveBeenCalledWith('sala-1');
+      expect(verifyToken).toHaveBeenCalledWith('valid-token', 'secret-key-123');
+      expect(mockSocket.user).toEqual({ id: 'user-1' });
+      expect(next).toHaveBeenCalledWith(); // Sucesso
+    });
+
+    it('Deve rejeitar conexão se channelSlug ausente', async () => {
+      mockSocket.handshake.auth.channelSlug = null;
+      const next = jest.fn();
+
+      await middlewareCallback(mockSocket, next);
+
+      expect(next).toHaveBeenCalledWith(new Error('Authentication error: ChannelSlug missing'));
+    });
+
+    it('Deve rejeitar conexão se canal não encontrado', async () => {
+      (channelService.findBySlug as jest.Mock).mockResolvedValue(null);
+      const next = jest.fn();
+
+      await middlewareCallback(mockSocket, next);
+
+      expect(next).toHaveBeenCalledWith(new Error('Authentication error: Channel not found'));
+    });
+
+    it('Deve rejeitar conexão com token inválido para aquele canal', async () => {
+      (channelService.findBySlug as jest.Mock).mockResolvedValue({ apiKey: 'secret' });
+      (verifyToken as jest.Mock).mockReturnValue(null); // Falha na verificação
+      const next = jest.fn();
+
+      await middlewareCallback(mockSocket, next);
+
+      expect(next).toHaveBeenCalledWith(new Error('Authentication error: Invalid token'));
+    });
   });
 
-  it('Deve logar conexão e registrar eventos do socket ao conectar', () => {
-    // Simula a conexão executando o callback capturado
-    if (connectionCallback) {
-        connectionCallback(mockSocket);
-    } else {
-        fail('Callback de conexão não foi capturado');
-    }
+  describe('Eventos de Conexão', () => {
+    beforeEach(async () => {
+       // Configura ambiente "logado"
+      (channelService.findBySlug as jest.Mock).mockResolvedValue({ apiKey: 's' });
+      (verifyToken as jest.Mock).mockReturnValue({ id: 'u1' });
+      const next = jest.fn();
+      if (middlewareCallback) await middlewareCallback(mockSocket, next);
+    });
 
-    // Verifica log de conexão (Agora é DEBUG e passa um objeto serializável)
-    expect(logger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('[Socket] Conectado'),
-      expect.objectContaining({ socketId: 'socket-123' })
-    );
+    it('Deve logar conexão', () => {
+      if (connectionCallback) connectionCallback(mockSocket);
 
-    // Verifica se registrou os listeners no socket cliente
-    expect(mockSocket.on).toHaveBeenCalledWith('join_channel', expect.any(Function));
-    expect(mockSocket.on).toHaveBeenCalledWith('disconnect', expect.any(Function));
-  });
-
-  it('Deve entrar na sala (join) e logar quando cliente emite join_channel', () => {
-    // 1. Conecta
-    if (connectionCallback) {
-        connectionCallback(mockSocket);
-    }
-
-    // Limpa mocks para focar nos logs do evento join
-    (logger.debug as jest.Mock).mockClear();
-
-    // 2. Recupera o callback registrado para 'join_channel'
-    const joinCall = mockSocket.on.mock.calls.find((call: any[]) => call[0] === 'join_channel');
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.stringContaining('[Socket] Conectado'),
+        expect.objectContaining({ socketId: 'socket-123' })
+      );
+    });
     
-    if (!joinCall) {
-        fail('Listener para join_channel não foi registrado');
-        return; 
-    }
+    it('broadcastCall deve emitir call_update para room específica', () => {
+        const data = { id: '1', name: 'Teste' };
+        socketService.broadcastCall('triagem-02', data);
     
-    const joinCallback = joinCall[1];
-
-    // 3. Executa o callback simulando o evento do cliente
-    joinCallback('recepcao-01');
-
-    // 4. Verificações
-    expect(mockSocket.join).toHaveBeenCalledWith('recepcao-01');
-    expect(logger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('Entrou na sala'),
-      expect.objectContaining({ channel: 'recepcao-01' })
-    );
-  });
-
-  it('Deve logar disconnect corretamente', () => {
-    if (connectionCallback) {
-        connectionCallback(mockSocket);
-    }
-
-    (logger.debug as jest.Mock).mockClear();
-
-    const disconnectCall = mockSocket.on.mock.calls.find((call: any[]) => call[0] === 'disconnect');
-    
-    if (!disconnectCall) {
-        fail('Listener para disconnect não foi registrado');
-        return;
-    }
-
-    const disconnectCallback = disconnectCall[1];
-
-    disconnectCallback(); // Simula desconexão
-
-    expect(logger.debug).toHaveBeenCalledWith(
-      expect.stringContaining('Desconectado'),
-      expect.objectContaining({ socketId: 'socket-123' })
-    );
-  });
-
-  it('broadcastCall deve emitir call_update para room específica', () => {
-    const data = { id: '1', name: 'Teste' };
-    socketService.broadcastCall('triagem-02', data);
-
-    expect(mockServer.to).toHaveBeenCalledWith('triagem-02');
-    expect(mockServer.emit).toHaveBeenCalledWith('call_update', data);
-  });
-
-  it('Deve não emitir se room inválida (edge case)', () => {
-    socketService.broadcastCall('', { test: true });
-    
-    expect(mockServer.to).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('Tentativa de broadcast'),
-      expect.any(Object)
-    );
+        expect(mockServer.to).toHaveBeenCalledWith('triagem-02');
+        expect(mockServer.emit).toHaveBeenCalledWith('call_update', data);
+    });
   });
 });

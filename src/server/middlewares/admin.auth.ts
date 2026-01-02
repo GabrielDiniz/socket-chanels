@@ -17,7 +17,7 @@ export const adminAuthMiddleware = (req: Request, res: Response, next: NextFunct
   }
 
   if (adminKey !== SYSTEM_API_KEY) {
-    logger.warn('[AdminAuth] Chave de admin inválida', { ip: req.ip });
+    logger.warn('[AdminAuth] Chave de admin inválida', { ip: req.headers , header_key:adminKey , env_key:SYSTEM_API_KEY});
     res.status(403).json({
       error: 'Forbidden',
       message: 'Acesso negado',
