@@ -1,15 +1,17 @@
-// src/server/routes/index.ts
 import { Router } from 'express';
 import { createIngestController, authMiddleware } from '../controllers/ingest.controller';
 import { channelController } from '../controllers/channel.controller';
 import { getChannelHistory } from '../controllers/history.controller';
-import type { SocketService } from '../services/socket.service';
+import { createPairingController } from '../controllers/pairing.controller';
 import { adminRoutes } from './admin.routes';
 import { tenantRoutes } from './tenant.routes';
+import { adminAuthMiddleware } from '../middlewares/admin.auth';
+import { SocketService } from '../services/socket.service';
+import { PairingService } from '../services/pairing.service';
 
 const router = Router();
 
-export const createRoutes = (socketService: SocketService) => {
+export const createRoutes = (socketService: SocketService, pairingService: PairingService  ) => {
   // Rotas de Admin (Backoffice)
   router.use('/admin', adminRoutes);
 
@@ -17,7 +19,6 @@ export const createRoutes = (socketService: SocketService) => {
   router.use('/tenant', tenantRoutes);
 
   // Rota Legada/Pública de Registro
-  // FIX: Apontando para o método create, não para a instância inteira
   router.post('/register', (req, res) => channelController.create(req, res));
   
   // Ingestão
@@ -26,5 +27,8 @@ export const createRoutes = (socketService: SocketService) => {
   // Rotas Públicas (Histórico para TV)
   router.get('/channels/:slug/history', getChannelHistory);
 
+  // New: Admin pairing validate
+  router.post('/admin/pairing/validate', adminAuthMiddleware, createPairingController(pairingService));
+
   return router;
-};
+}

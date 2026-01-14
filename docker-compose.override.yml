@@ -1,3 +1,5 @@
+# docker-compose.override.yml — Overrides para desenvolvimento local (hot-reload, debug, etc.)
+
 services:
   versa-atende-dev-base:
     image: versa-atende-builder:latest
@@ -9,13 +11,16 @@ services:
     command: npm run dev:api:debug
     environment:
       - NODE_ENV=development
-      - NEXT_ENABLED=false
+      - NEXT_ENABLED=true  # Força frontend ativo em dev
+      - NEXT_TELEMETRY_DISABLED=1  # Fix crash telemetria Next.js
     volumes:
       - .:/app:delegated
       - /app/node_modules
     ports:
       - "3000:3000"
       - "24678:24678"             # opcional: VSCode debugger
+
+  # ... (resto do arquivo permanece igual)
 
   broadcast-test:
     container_name: versa-atende-broadcast-test
@@ -39,10 +44,10 @@ services:
     container_name: versa-atende-api-jest
     extends:
       service: versa-atende-dev-base
-    command: npm test -- --watchAll=false  # Run único; mude para --watchAll para modo watch
+    command: npm test  # Run único; mude para --watchAll para modo watch
     environment:
       - NODE_ENV=test
-      - NEXT_ENABLED=false
+      - NEXT_ENABLED=true
       # FORÇA a URL correta para o container de teste acessar o banco
       - DATABASE_URL=mysql://${DB_USER}:${DB_PASS}@db:${DB_PORT}/${DB_NAME}
       # Garante que as chaves usadas nos testes batam com o env

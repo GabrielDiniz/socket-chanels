@@ -6,7 +6,7 @@
       "request": "attach",
       "name": "Attach to Docker Debug (Port 24678)",
       "port": 24678,
-      "address": "localhost",  // Ou "host.docker.internal" se attach de dentro do container para host
+      "address": "host.docker.internal",  // Ou "host.docker.internal" se attach de dentro do container para host
       "localRoot": "${workspaceFolder}",  // Caminho local no seu host
       "remoteRoot": "/app",  // Caminho dentro do container (como no Dockerfile)
       "skipFiles": ["<node_internals>/**"],  // Ignora internals do Node

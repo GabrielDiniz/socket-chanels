@@ -2,6 +2,7 @@ import { Server as SocketIOServer, Socket } from 'socket.io';
 import { logger } from '../config/logger';
 import { verifyToken } from '../utils/jwt.utils';
 import { channelService } from './channel.service'; // Importar serviço de canal
+import type { PairingService } from './pairing.service';
 
 // Estende a interface do Socket para incluir o usuário autenticado (opcional)
 interface AuthenticatedSocket extends Socket {
@@ -10,9 +11,11 @@ interface AuthenticatedSocket extends Socket {
 
 export class SocketService {
   private io: SocketIOServer;
+  private pairingService: PairingService;
 
-  constructor(io: SocketIOServer) {
+  constructor(io: SocketIOServer,pairingService: PairingService) {
     this.io = io;
+    this.pairingService = pairingService;
     this.setupMiddleware();
     this.setupConnectionLogs();
   }
@@ -23,14 +26,16 @@ export class SocketService {
       const token = socket.handshake.auth.token || socket.handshake.headers['authorization'];
       const channelSlug = socket.handshake.query.channelSlug as string || socket.handshake.auth.channelSlug;
 
+      // Bypass auth for pairing TV (no channelSlug = public temp connection)
+      if (!channelSlug) {
+        logger.info(`[Socket] Conexão pairing pública permitida (${socket.id})`);
+        return next();
+      }
+
+      // Normal auth for channel realtime
       if (!token) {
         logger.warn(`[Socket] Conexão rejeitada: Token ausente (${socket.id})`);
         return next(new Error('Authentication error: Token missing'));
-      }
-
-      if (!channelSlug) {
-        logger.warn(`[Socket] Conexão rejeitada: ChannelSlug ausente (${socket.id})`);
-        return next(new Error('Authentication error: ChannelSlug missing'));
       }
 
       try {
@@ -77,12 +82,21 @@ export class SocketService {
         socket.join(channelId);
         logger.debug(`[Socket] ${socket.id} Entrou na sala: ${channelId}`, { channel: channelId, socketId: socket.id });
       });
-      
+      socket.on('waiting_pair', (code: string) => {
+        socket.join(`pairing-${code}`);
+        logger.debug(`[Socket] ${socket.id} Entrou na sala de pareamento: pairing-${code}`, { code, socketId: socket.id });
+      });
+      socket.on('register_temp_code', (data: { code: string }) => {
+        logger.info('[Socket] register_temp_code from TV', data);
+        this.pairingService.registerTempCode(data.code);
+      });
       socket.on('disconnect', () => {
         logger.debug(`[Socket] Desconectado: ${socket.id}`, { socketId: socket.id });
       });
     });
   }
+
+ 
 
   public broadcastCall(channel: string, data: any) {
     if (!channel || typeof channel !== 'string' || channel.trim() === '') {
@@ -94,4 +108,5 @@ export class SocketService {
     
     this.io.to(channel).emit('call_update', data);
   }
+
 }

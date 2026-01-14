@@ -1,7 +1,13 @@
 {
   "extends": "./tsconfig.server.json",
   "compilerOptions": {
-    "types": ["node", "jest"]  // Adiciona tipos do Jest para recognize describe, it, expect, etc.
+    "types": ["node", "jest"],
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "jsx": "react-jsx", // Ativa suporte JSX React 17+ (renderHook, <PanelPage /> em tests)
+    "allowJs": true, // Safe pra imports mistos se precisar
+    "noEmit": true,
+    "isolatedModules": true,
+    "moduleResolution": "bundler"
   },
-  "include": ["src/**/*.ts", "server.ts", "**/__tests__/**/*.ts"]  // Inclui explicitamente testes
+  "include": ["src/**/*.ts", "src/**/*.tsx", "server.ts", "**/__tests__/**/*.ts", "**/__tests__/**/*.tsx"]
 }

@@ -40,7 +40,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        NEXT_ENABLED: "false"
+        NEXT_ENABLED: true
     image: versa-atende-api-server:latest
     restart: always
     ports:
@@ -49,7 +49,7 @@ services:
       - .env
     environment:
       - NODE_ENV=production
-      - NEXT_ENABLED=false
+      - NEXT_ENABLED=true
       # AQUI ESTÁ A MÁGICA: Montamos a URL dinamicamente
       - DATABASE_URL=mysql://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}
     networks:
