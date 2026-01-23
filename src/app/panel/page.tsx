@@ -10,6 +10,7 @@ export default function PanelPage() {
   const {
     isPaired,
     channelSlug,
+    token, // CORREÇÃO: Recebendo o token do hook
     generatedCode,
     timeLeft,
     formatTime,
@@ -19,8 +20,12 @@ export default function PanelPage() {
 
   return (
     <main className="flex h-screen items-center justify-center bg-blue-900 text-white">
-      {isPaired ? (
-        <ActiveView channelSlug={channelSlug!} clearPairing={clearPairing} />
+      {isPaired && token && channelSlug ? (
+        <ActiveView 
+          channelSlug={channelSlug} 
+          token={token} // CORREÇÃO: Passando o token para a view ativa
+          clearPairing={clearPairing} 
+        />
       ) : (
         <PairingView
           generatedCode={generatedCode}

@@ -5,7 +5,7 @@ const { io } = require('socket.io-client');
 const jwt = require('jsonwebtoken'); 
 const { PrismaClient } = require('@prisma/client');
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient(); 
 
 const SERVER_URL = process.env.SERVER_URL || 'http://server:3000';
 // Slug do canal que queremos escutar

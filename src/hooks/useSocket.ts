@@ -18,25 +18,32 @@ export default function useSocket(channelSlug: string, token: string) {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    // '/' usa current origin explicitamente (matcha teste stringContaining('/'), same behavior empty string)
+    if (!token || !channelSlug) return;
+
+    // '/' usa current origin explicitamente
     const socket = io('/', {
       auth: { token },
+      query: { channelSlug }, // Envia slug no handshake também para redundância/logs
     });
 
     socketRef.current = socket;
 
     const handleConnect = () => {
       setIsConnected(true);
-      socket.emit('join_room', channelSlug);
+      // CORREÇÃO: Nome do evento alterado de 'join_room' para 'join_channel' para bater com o backend
+      socket.emit('join_channel', channelSlug);
     };
 
     const handleDisconnect = () => {
       setIsConnected(false);
-      // Force reconnect imediato (garante connect called twice no teste + reconexão real robusta)
-      socket.connect();
+      // Tenta reconectar se cair
+      if (socket.connected === false) {
+        socket.connect();
+      }
     };
 
     const handleCallUpdate = (data: CallData) => {
+      console.log('[useSocket] Nova chamada recebida:', data);
       setCurrentCall(data);
     };
 
@@ -44,7 +51,7 @@ export default function useSocket(channelSlug: string, token: string) {
     socket.on('disconnect', handleDisconnect);
     socket.on('call_update', handleCallUpdate);
 
-    // Connect inicial explícito (garante called nos testes)
+    // Connect inicial explícito
     socket.connect();
 
     return () => {

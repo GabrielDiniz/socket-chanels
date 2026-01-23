@@ -2,7 +2,6 @@
 
 "use client";
 
-import { env } from 'process';
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 
@@ -15,6 +14,9 @@ export default function usePairing() {
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [isPaired, setIsPaired] = useState<boolean>(false);
   const [channelSlug, setChannelSlug] = useState<string | null>(null);
+  // CORREÇÃO: Adicionado estado para armazenar o token JWT
+  const [token, setToken] = useState<string | null>(null);
+  
   const [timeLeft, setTimeLeft] = useState<number>(300); // 5min countdown
   const socketRef = useRef<Socket | null>(null);
 
@@ -26,6 +28,7 @@ export default function usePairing() {
         const data: PairedData = JSON.parse(stored);
         setIsPaired(true);
         setChannelSlug(data.slug);
+        setToken(data.token); // Recupera token do storage
       } else {
         generateNewCode();
       }
@@ -61,7 +64,7 @@ export default function usePairing() {
         socketRef.current = null;
       }
 
-      const socket = io(process.env.SERVER_URL, {}); // No auth for temp room (public pairing)
+      const socket = io(process.env.NEXT_PUBLIC_API_URL || '/', {}); // No auth for temp room (public pairing)
       socketRef.current = socket;
 
       socket.on('connect', () => {
@@ -72,9 +75,13 @@ export default function usePairing() {
       });
 
       socket.on('paired', (data: PairedData) => {
+        console.log('[usePairing] Pareamento recebido com sucesso', data);
         localStorage.setItem('pairedChannel', JSON.stringify(data));
+        
         setIsPaired(true);
         setChannelSlug(data.slug);
+        setToken(data.token); // Salva token no estado
+        
         setGeneratedCode('');
         socket.disconnect(); // Cleanup após paired
       });
@@ -92,7 +99,7 @@ export default function usePairing() {
     }
   }, [isPaired, generatedCode]);
 
-  // Gera código aleatório 6 dígitos (MVP simple, futuro crypto.getRandomValues)
+  // Gera código aleatório 6 dígitos
   const generateNewCode = () => {
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setGeneratedCode(code);
@@ -103,11 +110,12 @@ export default function usePairing() {
   const stubPairSuccess = (slug: string = 'recepcao-principal') => {
     const pairedData: PairedData = {
       slug,
-      token: 'stub-token',
+      token: 'stub-token-dev-mode',
     };
     localStorage.setItem('pairedChannel', JSON.stringify(pairedData));
     setIsPaired(true);
     setChannelSlug(slug);
+    setToken(pairedData.token);
     setGeneratedCode('');
   };
 
@@ -116,6 +124,7 @@ export default function usePairing() {
     localStorage.removeItem('pairedChannel');
     setIsPaired(false);
     setChannelSlug(null);
+    setToken(null);
     generateNewCode();
   };
 
@@ -129,6 +138,7 @@ export default function usePairing() {
     generatedCode,
     isPaired,
     channelSlug,
+    token, // CORREÇÃO: Token exposto
     timeLeft,
     formatTime,
     generateNewCode,

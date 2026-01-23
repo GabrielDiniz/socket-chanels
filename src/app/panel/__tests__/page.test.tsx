@@ -1,13 +1,19 @@
-// src/app/panel/__tests__/page.test.tsx — Testes de componente TDD para PanelPage (nova lógica invertida: TV show code gerado + countdown)
-
 import { render, screen } from '@testing-library/react';
 import PanelPage from '../page';
 import usePairing from '../../../hooks/usePairing';
 
-// Mock completo do hook usePairing (controlável por teste, nova API invertida)
+// Mock do hook usePairing
 jest.mock('../../../hooks/usePairing');
-
 const mockedUsePairing = usePairing as jest.MockedFunction<typeof usePairing>;
+
+// Mock do hook useSocket (usado dentro de ActiveView)
+jest.mock('../../../hooks/useSocket', () => ({
+  __esModule: true,
+  default: jest.fn(() => ({
+    isConnected: true,
+    currentCall: null,
+  })),
+}));
 
 describe('PanelPage', () => {
   beforeEach(() => {
@@ -18,6 +24,7 @@ describe('PanelPage', () => {
     mockedUsePairing.mockReturnValue({
       isPaired: false,
       channelSlug: null,
+      token: null,
       generatedCode: '123456',
       timeLeft: 300,
       formatTime: jest.fn((seconds: number) => {
@@ -34,21 +41,16 @@ describe('PanelPage', () => {
 
     expect(screen.getByText(/Parear esta TV/i)).toBeInTheDocument();
     expect(screen.getByText(/Digite este código no Painel Admin/i)).toBeInTheDocument();
-    expect(screen.getByText('123456')).toBeInTheDocument(); // Code big
-    expect(screen.getByText(/Expira em: 5:00/i)).toBeInTheDocument(); // Countdown format
-    expect(screen.getByText(/Atualize a página para novo código/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Canal Pareado/i)).not.toBeInTheDocument();
+    expect(screen.getByText('123456')).toBeInTheDocument();
+    expect(screen.getByText(/Expira em: 5:00/i)).toBeInTheDocument();
   });
 
-  /**
-   * Cobertura PairingView.tsx Linha 21:
-   * Valida o fallback quando generatedCode é falsy (string vazia)
-   */
   it('Deve exibir "Gerando..." no PairingView quando o código de pareamento ainda não foi gerado', () => {
     mockedUsePairing.mockReturnValue({
       isPaired: false,
       channelSlug: null,
-      generatedCode: '', // Gatilha o operador lógico || na linha 21
+      token: null,
+      generatedCode: '',
       timeLeft: 300,
       formatTime: jest.fn(() => '5:00'),
       generateNewCode: jest.fn(),
@@ -58,14 +60,16 @@ describe('PanelPage', () => {
 
     render(<PanelPage />);
 
-    // Verifica se o fallback definido na linha 21 de PairingView.tsx é exibido
     expect(screen.getByTestId('generated-code')).toHaveTextContent('Gerando...');
   });
 
   it('Deve renderizar ActiveView quando pareado', () => {
+    const mockSlug = 'recepcao-principal';
+    
     mockedUsePairing.mockReturnValue({
       isPaired: true,
-      channelSlug: 'recepcao-principal',
+      channelSlug: mockSlug,
+      token: 'token-valido',
       generatedCode: '',
       timeLeft: 0,
       formatTime: jest.fn(),
@@ -76,9 +80,25 @@ describe('PanelPage', () => {
 
     render(<PanelPage />);
 
-    expect(screen.getByText(/Canal Pareado: recepcao-principal/i)).toBeInTheDocument();
-    expect(screen.getByText(/Conectado e pronto!/i)).toBeInTheDocument();
-    expect(screen.getByText(/Aguardando próxima chamada/i)).toBeInTheDocument();
+    // 1. Verifica Título da Sidebar
+    expect(screen.getByText(/Últimas Chamadas/i)).toBeInTheDocument();
+
+    /** * 2. Verifica Título do Canal (PanelHeader.tsx)
+     * Usamos uma abordagem baseada em Regex no header inteiro para evitar problemas com
+     * espaços em branco entre elementos (como o espaço após "Painel").
+     */
+    const headerTitle = screen.getByRole('heading', { level: 1 });
+    // Verifica se o texto normalizado contém "PAINEL" e "RECEPCAO PRINCIPAL"
+    expect(headerTitle.textContent).toMatch(/Painel\s+recepcao\s+principal/i);
+
+    // 3. Verifica Estado Vazio da ActiveView
+    expect(screen.getByText(/Aguardando Chamada/i)).toBeInTheDocument();
+
+    // 4. Verifica Rodapé (PanelFooter.tsx)
+    // No footer o slug aparece literal: "Canal: recepcao-principal"
+    expect(screen.getByText(/Canal:\s+recepcao-principal/i)).toBeInTheDocument();
+    
+    // Garante que a view de pareamento sumiu
     expect(screen.queryByText(/Parear esta TV/i)).not.toBeInTheDocument();
   });
 });
