@@ -14,6 +14,7 @@ const config: Config = {
   testPathIgnorePatterns: ['/node_modules/', '/dist/', '/.next/', 'test-utils.ts'],
   testMatch: [
     '<rootDir>/src/server/**/__tests__/**/*.ts',
+    '<rootDir>/src/utils/**/__tests__/**/*.ts',
     '<rootDir>/src/server/**/?(*.)+(spec|test).ts',
   ],
   transform: {

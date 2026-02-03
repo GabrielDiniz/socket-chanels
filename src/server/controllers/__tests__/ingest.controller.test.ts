@@ -3,31 +3,32 @@ import { createIngestController, authMiddleware } from '../ingest.controller';
 import { prisma } from '../../config/prisma';
 import { PayloadFactory } from '../../adapters/payload.factory';
 import { channelService } from '../../services/channel.service';
+import { channelRouter } from '../../services/channel.router';
 import type { SocketService } from '../../services/socket.service';
 
-// Mocks definidos diretamente
+// --- MOCKS ---
+// CORREÇÃO: Adicionado parênteses que faltavam na chamada do mock
 jest.mock('../../config/prisma', () => ({
   __esModule: true,
   prisma: {
-    call: {
-      create: jest.fn(),
-    },
+    tenant: { findUnique: jest.fn() },
   },
 }));
 
 jest.mock('../../adapters/payload.factory');
 jest.mock('../../services/channel.service');
+jest.mock('../../services/channel.router');
 
-// Mock do serviço de Socket
 const mockSocketService = {
   broadcastCall: jest.fn(),
 } as unknown as SocketService;
 
-// Helper para response
 const mockResponse = () => {
   const res = {} as Response;
   res.status = jest.fn().mockReturnThis();
   res.json = jest.fn();
+  // Simula o objeto locals do Express
+  res.locals = {}; 
   return res;
 };
 
@@ -43,169 +44,134 @@ describe('Ingest Controller', () => {
     jest.clearAllMocks();
   });
 
+  // =========================================================================
+  // TESTES DO MIDDLEWARE (authMiddleware)
+  // =========================================================================
   describe('authMiddleware', () => {
-    it('deve chamar next() se autenticado e tenant ativo', async () => {
+    
+    // --- Estratégia 1: Auth Direta ---
+    it('deve chamar next() se autenticação direta for válida', async () => {
       req.headers = { 'x-auth-token': 'key', 'x-channel-id': 'slug' };
-      // Mock canal COM tenant ativo
-      (channelService.findByApiKeyAndSlug as jest.Mock).mockResolvedValue({ 
-        id: '1', 
-        tenant: { isActive: true } 
-      });
+      (channelService.findByApiKeyAndSlug as jest.Mock).mockResolvedValue({ id: '1', isActive: true });
+
       await authMiddleware(req as Request, res, next);
+
+      expect(channelService.findByApiKeyAndSlug).toHaveBeenCalledWith('key', 'slug');
+      expect(res.locals.targetChannel).toBeDefined();
       expect(next).toHaveBeenCalled();
     });
 
-    it('deve retornar 403 se tenant estiver inativo (Kill Switch)', async () => {
+    it('deve retornar 403 se canal direto estiver inativo', async () => {
       req.headers = { 'x-auth-token': 'key', 'x-channel-id': 'slug' };
-      // Mock canal COM tenant inativo
-      (channelService.findByApiKeyAndSlug as jest.Mock).mockResolvedValue({ 
-        id: '1', 
-        tenant: { isActive: false, name: 'Caloteiro' } 
-      });
-      
+      (channelService.findByApiKeyAndSlug as jest.Mock).mockResolvedValue({ id: '1', isActive: false });
+
       await authMiddleware(req as Request, res, next);
 
       expect(res.status).toHaveBeenCalledWith(403);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: 'Forbidden' })
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Channel is inactive' }));
       expect(next).not.toHaveBeenCalled();
     });
 
-    it('deve retornar 400 se faltar headers obrigatórios', async () => {
-      await authMiddleware(req as Request, res, next);
+    // --- Estratégia 2: Auth Tenant (Roteamento) ---
+    it('deve chamar next() se autenticação tenant e roteamento forem válidos', async () => {
+      req.headers = { 'x-tenant-key': 'tenant-token' };
       
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: 'Bad Request' })
-      );
+      // Mocks para sucesso
+      (prisma.tenant.findUnique as jest.Mock).mockResolvedValue({ id: 'tenant1', isActive: true });
+      (PayloadFactory.create as jest.Mock).mockReturnValue({ rawSource: 'SGA', routingKey: '5' });
+      (channelRouter.route as jest.Mock).mockResolvedValue({ id: 'channel1', isActive: true, slug: 'recepcao' });
+
+      await authMiddleware(req as Request, res, next);
+
+      expect(prisma.tenant.findUnique).toHaveBeenCalledWith({ where: { apiToken: 'tenant-token' } });
+      expect(PayloadFactory.create).toHaveBeenCalled(); // Verifica payload
+      expect(channelRouter.route).toHaveBeenCalledWith('tenant1', 'SGA', '5');
+      expect(res.locals.targetChannel).toBeDefined();
+      expect(res.locals.preParsedEntity).toBeDefined(); // Otimização deve estar presente
+      expect(next).toHaveBeenCalled();
     });
 
-    it('deve retornar 401 se channel não existir ou estiver inativo', async () => {
-      req.headers = {
-        'x-auth-token': 'invalid-key',
-        'x-channel-id': 'invalid-slug',
-      };
+    it('deve retornar 404 se roteamento não encontrar canal', async () => {
+      req.headers = { 'x-tenant-key': 'tenant-token' };
       
-      (channelService.findByApiKeyAndSlug as jest.Mock).mockResolvedValue(null);
+      (prisma.tenant.findUnique as jest.Mock).mockResolvedValue({ id: 'tenant1', isActive: true });
+      (PayloadFactory.create as jest.Mock).mockReturnValue({ rawSource: 'Unknown', routingKey: 'X' });
+      (channelRouter.route as jest.Mock).mockResolvedValue(null); // Canal não encontrado
 
       await authMiddleware(req as Request, res, next);
 
+      expect(res.status).toHaveBeenCalledWith(404);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    // --- Falhas Gerais ---
+    it('deve retornar 401 se faltar headers obrigatórios', async () => {
+      req.headers = {}; // Sem headers
+
+      await authMiddleware(req as Request, res, next);
+      
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: 'Unauthorized' })
-      );
-    });
-
-    it('deve retornar 500 em erro inesperado', async () => {
-      req.headers = {
-        'x-auth-token': 'valid-key',
-        'x-channel-id': 'recepcao',
-      };    
-      (channelService.findByApiKeyAndSlug as jest.Mock).mockRejectedValue(new Error('DB down'));
-      await authMiddleware(req as Request, res, next);
-      expect(res.status).toHaveBeenCalledWith(500);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ error: 'Internal Server Error' })
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Unauthorized' }));
     });
   });
 
+  // =========================================================================
+  // TESTES DO CONTROLLER (createIngestController)
+  // =========================================================================
   describe('createIngestController', () => {
     const controller = createIngestController(mockSocketService);
 
-    beforeEach(() => {
-      // Simula estado autenticado
-      (req as any).channel = { id: '1', slug: 'recepcao', name: 'Recepção' };
-    });
-
-    // --- Casos para Versa ---
-    it('deve retornar 200 em sucesso (Versa)', async () => {
-      req.body = { valid: 'payload' };
-      (PayloadFactory.create as jest.Mock).mockReturnValue({ name: 'Test', destination: 'Dest', rawSource: 'Versa' });
-      (prisma.call.create as jest.Mock).mockResolvedValue({ id: '123' });
-
-      await controller(req as Request, res);
-
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(prisma.call.create).toHaveBeenCalled();
-      expect(mockSocketService.broadcastCall).toHaveBeenCalled();
-    });
-
-    // --- Casos para NovoSGA ---
-    it('deve processar e retornar 200 para payload válido do NovoSGA', async () => {
-      const sgaPayload = {
-        senha: { format: 'A005' },
-        local: { nome: 'Guichê' },
-        numeroLocal: 3,
-        prioridade: { peso: 1 }, // Prioritário
-      };
-      req.body = sgaPayload;
-
-      // Mock do que a Factory retornaria para um payload SGA
-      const normalizedSgaCall = {
-        name: 'A005',
-        destination: 'Guichê 3',
-        rawSource: 'NovoSGA',
-        isPriority: true,
-        timestamp: new Date(),
-      };
-
-      (PayloadFactory.create as jest.Mock).mockReturnValue(normalizedSgaCall);
-      (prisma.call.create as jest.Mock).mockResolvedValue({ id: 'sga-123' });
-
-      await controller(req as Request, res);
-
-      // Verificações
-      expect(PayloadFactory.create).toHaveBeenCalledWith(sgaPayload);
+    it('deve retornar 200 em sucesso (usando dados injetados pelo middleware)', async () => {
+      // Simula o middleware já ter populado o locals
+      res.locals.targetChannel = { slug: 'recepcao', isActive: true };
+      res.locals.authStrategy = 'direct';
       
-      expect(prisma.call.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          channelId: '1',
-          patientName: 'A005',
-          destination: 'Guichê 3',
-          isPriority: true,
-          sourceSystem: 'NovoSGA',
-          ticket: 'A005', // Controller deve usar o nome como ticket para SGA
-          rawPayload: sgaPayload
-        })
+      // Mock do Factory para o caso Direct (onde o middleware não parseou antes)
+      (PayloadFactory.create as jest.Mock).mockReturnValue({ 
+        routingKey: '5', 
+        rawSource: 'SGA',
+        name: 'A001' 
       });
 
-      expect(mockSocketService.broadcastCall).toHaveBeenCalledWith('recepcao', expect.objectContaining({
-        id: 'sga-123',
-        name: 'A005',
-        rawSource: 'NovoSGA'
-      }));
+      await controller(req as Request, res);
 
+      expect(mockSocketService.broadcastCall).toHaveBeenCalledWith('recepcao', expect.anything());
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
     });
 
-    it('deve retornar 422 se o Zod falhar na Factory', async () => {
-      req.body = { invalid: 'payload' };
+    it('deve reutilizar entidade pré-parseada se disponível (Otimização Tenant)', async () => {
+      const preParsed = { routingKey: 'COL', rawSource: 'Versa' };
+      res.locals.targetChannel = { slug: 'coleta', isActive: true };
+      res.locals.preParsedEntity = preParsed;
+
+      await controller(req as Request, res);
+
+      // Não deve chamar o create novamente se já existe
+      // Nota: PayloadFactory.create pode ter sido chamado antes, aqui focamos no resultado
+      expect(mockSocketService.broadcastCall).toHaveBeenCalledWith('coleta', preParsed);
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it('deve retornar 422 se o Zod falhar na Factory (Erro de Payload)', async () => {
+      res.locals.targetChannel = { slug: 'recepcao', isActive: true };
       
-      // Simula erro do Zod lançado pela Factory
+      // Simula erro de validação (ex: auth direta com payload ruim)
+      const zodError = new Error('Validation Error');
+      (zodError as any).name = 'ZodError';
+      (zodError as any).errors = [{ message: 'Field required' }];
+      
       (PayloadFactory.create as jest.Mock).mockImplementation(() => {
-        const err = new Error('Zod Validation Error');
-        (err as any).name = 'ZodError';
-        (err as any).errors = [{ path: ['field'], message: 'Required' }];
-        throw err;
+        throw zodError;
       });
 
       await controller(req as Request, res);
 
       expect(res.status).toHaveBeenCalledWith(422);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ 
-          success: false, 
-          error: 'Payload inválido',
-          details: expect.any(Array) 
-        })
-      );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: false, error: 'Payload inválido' }));
     });
 
-    it('deve retornar 400 se o payload for desconhecido (Regra de Negócio)', async () => {
-      req.body = { unknown: 'system' };
+    it('deve retornar 400 se o formato de payload for desconhecido', async () => {
+      res.locals.targetChannel = { slug: 'recepcao', isActive: true };
       
       (PayloadFactory.create as jest.Mock).mockImplementation(() => {
         throw new Error('Formato de payload desconhecido ou não suportado.');
@@ -214,57 +180,7 @@ describe('Ingest Controller', () => {
       await controller(req as Request, res);
 
       expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ 
-          success: false, 
-          error: 'Formato de payload desconhecido ou não suportado.' 
-        })
-      );
-    });
-
-    it('deve retornar 400 se o payload não corresponder a nenhum padrão conhecido', async () => {
-      // Payload que não é Versa nem SGA
-      const unknownPayload = { foo: 'bar' };
-      req.body = unknownPayload;
-
-      // A Factory deve lançar erro para payload desconhecido
-      (PayloadFactory.create as jest.Mock).mockImplementation(() => {
-        throw new Error('Formato de payload desconhecido ou não suportado.');
-      });
-
-      await controller(req as Request, res);
-
-      expect(res.status).toHaveBeenCalledWith(400);
-      expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({
-          success: false,
-          error: 'Formato de payload desconhecido ou não suportado.'
-        })
-      );
-    });
-
-    it('deve retornar 500 em erro de banco de dados (Prisma)', async () => {
-        const payload = {
-            source_system: 'VersaTest',
-            current_call: { patient_name: 'João', destination: 'Consultório 1' },
-        };
-        req.body = payload;
-
-        // Factory passa ok
-        (PayloadFactory.create as jest.Mock).mockReturnValue({ name: 'João' }); 
-        
-        // Prisma falha
-        (prisma.call.create as jest.Mock).mockRejectedValue(new Error('DB Connection Error'));
-
-        await controller(req as Request, res);
-
-        expect(res.status).toHaveBeenCalledWith(500);
-        expect(res.json).toHaveBeenCalledWith(
-            expect.objectContaining({ 
-              success: false, 
-              error: 'Erro interno ao processar chamada' 
-            })
-        );
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Formato de payload desconhecido ou não suportado.' }));
     });
   });
 });

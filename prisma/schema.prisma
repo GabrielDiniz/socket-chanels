@@ -29,7 +29,8 @@ model Channel {
   slug      String   @unique
   name      String
   apiKey    String   @unique // Chave "dumb" para a TV/Totem
-  
+  // JSON para roteamento dinâmico: { "NovoSGA": "5", "Versa": "COL" }
+  routingKeyMap Json?
   // Relação com Tenant
   tenantId  String?  // Opcional na Fase 1 para migração, será obrigatório depois
   tenant    Tenant?  @relation(fields: [tenantId], references: [id])

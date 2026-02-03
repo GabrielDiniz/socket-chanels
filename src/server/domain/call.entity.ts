@@ -5,10 +5,13 @@ export interface CallEntity {
   professional?: string;
   timestamp: Date;
   isPriority: boolean;
-  rawSource: string; // Para auditoria
+  
+  // Chave extraída para roteamento (ex: "5", "COL")
+  routingKey?: string; 
+  
+  rawSource: string;
 }
 
-// Interface para o Payload Normalizado que trafega no WebSocket
 export interface NormalizedEvent {
   type: 'call_update' | 'queue_update';
   channel: string;

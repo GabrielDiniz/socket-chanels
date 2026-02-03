@@ -1,57 +1,60 @@
-// src/hooks/useSocket.ts — Hook para conexão realtime socket.io-client no Panel (auth token, join room, call_update state, reconexão automática com re-join, cleanup)
-
+// src/hooks/useSocket.ts — Responsável APENAS pela conexão WebSocket e entrega de dados (SRP)
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { CallData } from '../types/CallData';
 
-export interface CallData {
-  patientName: string;
-  destination: string;
-  professional?: string;
-  // Futuro: adicionar ticket, isPriority, etc. conforme CallEntity
+interface UseSocketReturn {
+  isConnected: boolean;
+  lastCall: CallData | null;
 }
 
-export default function useSocket(channelSlug: string, token: string) {
+export default function useSocket(
+  channelSlug: string, 
+  token: string, 
+  onCallReceived?: (data: CallData) => void
+): UseSocketReturn {
   const [isConnected, setIsConnected] = useState<boolean>(false);
-  const [currentCall, setCurrentCall] = useState<CallData | null>(null);
+  const [lastCall, setLastCall] = useState<CallData | null>(null);
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     if (!token || !channelSlug) return;
 
-    // '/' usa current origin explicitamente
     const socket = io('/', {
       auth: { token },
-      query: { channelSlug }, // Envia slug no handshake também para redundância/logs
+      query: { channelSlug },
     });
-
     socketRef.current = socket;
 
     const handleConnect = () => {
       setIsConnected(true);
-      // CORREÇÃO: Nome do evento alterado de 'join_room' para 'join_channel' para bater com o backend
       socket.emit('join_channel', channelSlug);
     };
 
     const handleDisconnect = () => {
       setIsConnected(false);
-      // Tenta reconectar se cair
+      // Tentativa de reconexão manual se cair
       if (socket.connected === false) {
         socket.connect();
       }
     };
 
     const handleCallUpdate = (data: CallData) => {
-      console.log('[useSocket] Nova chamada recebida:', data);
-      setCurrentCall(data);
+      console.log('[useSocket] Dados recebidos:', data);
+      setLastCall(data);
+      
+      // Delega a ação para quem está consumindo o hook (Inversão de Controle)
+      if (onCallReceived) {
+        onCallReceived(data);
+      }
     };
 
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('call_update', handleCallUpdate);
 
-    // Connect inicial explícito
     socket.connect();
 
     return () => {
@@ -63,7 +66,7 @@ export default function useSocket(channelSlug: string, token: string) {
         socketRef.current = null;
       }
     };
-  }, [channelSlug, token]);
+  }, [channelSlug, token, onCallReceived]);
 
-  return { isConnected, currentCall };
+  return { isConnected, lastCall };
 }

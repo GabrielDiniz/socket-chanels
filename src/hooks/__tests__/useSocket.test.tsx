@@ -24,6 +24,21 @@ describe('useSocket', () => {
     mockedSocket.connected = false;
   });
 
+  // NOVO TESTE: Cobre a linha 23 (Early return se faltar parâmetros)
+  it('Não deve conectar se token ou channelSlug forem inválidos (vazios)', () => {
+    // Caso 1: Ambos vazios
+    renderHook(() => useSocket('', ''));
+    
+    // Caso 2: Apenas slug
+    renderHook(() => useSocket('slug-valido', ''));
+
+    // Caso 3: Apenas token
+    renderHook(() => useSocket('', 'token-valido'));
+
+    // O socketIoMock (io) não deve ser chamado em nenhum desses casos
+    expect(socketIoMock).not.toHaveBeenCalled();
+  });
+
   it('Deve inicializar socket e conectar com auth token do pairing', () => {
     renderHook(() => useSocket('recepcao-principal', 'stub-token'));
 
@@ -42,11 +57,10 @@ describe('useSocket', () => {
       connectCallback?.();
     });
 
-    // CORREÇÃO: Nome do evento agora é join_channel conforme useSocket.ts
     expect(mockedSocket.emit).toHaveBeenCalledWith('join_channel', 'recepcao-principal');
   });
 
-  it('Deve atualizar currentCall ao receber call_update', () => {
+  it('Deve atualizar lastCall ao receber call_update', () => {
     const { result } = renderHook(() => useSocket('recepcao-principal', 'stub-token'));
 
     const mockCall = {
@@ -59,7 +73,26 @@ describe('useSocket', () => {
       updateCallback?.(mockCall);
     });
 
-    expect(result.current.currentCall).toEqual(mockCall);
+    expect(result.current.lastCall).toEqual(mockCall);
+  });
+
+  it('Deve executar callback onCallReceived (se fornecido) ao receber call_update', () => {
+    const onCallReceivedMock = jest.fn();
+    
+    renderHook(() => useSocket('recepcao-principal', 'stub-token', onCallReceivedMock));
+
+    const mockCall = {
+      patientName: 'Maria Souza',
+      destination: 'Triagem',
+    };
+
+    act(() => {
+      const updateCallback = (mockedSocket.on as jest.Mock).mock.calls.find(call => call[0] === 'call_update')?.[1];
+      updateCallback?.(mockCall);
+    });
+
+    expect(onCallReceivedMock).toHaveBeenCalledWith(mockCall);
+    expect(onCallReceivedMock).toHaveBeenCalledTimes(1);
   });
 
   it('Deve reconectar automaticamente e re-join room em disconnect', () => {
@@ -75,17 +108,14 @@ describe('useSocket', () => {
       disconnectCallback?.();
     });
 
-    // Verifica se tentou conectar novamente após o disconnect
     expect(mockedSocket.connect).toHaveBeenCalledTimes(1); 
     expect(result.current.isConnected).toBe(false);
 
-    // Re-join após reconnect
     act(() => {
       const connectCallback = (mockedSocket.on as jest.Mock).mock.calls.find(call => call[0] === 'connect')?.[1];
       connectCallback?.();
     });
     
-    // CORREÇÃO: join_channel
     expect(mockedSocket.emit).toHaveBeenCalledWith('join_channel', 'recepcao-principal');
   });
 

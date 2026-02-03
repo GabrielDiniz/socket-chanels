@@ -1,8 +1,8 @@
-// src/app/panel/_components/layout/PanelSidebar.tsx — Barra lateral de histórico
+// src/app/panel/_components/layout/PanelSidebar.tsx — Barra lateral de histórico (Imports atualizados)
 
 "use client";
 
-import { CallData } from "../../../../hooks/useSocket";
+import { CallData } from "../../../../types/CallData"; // Import corrigido
 import CallCard from "../CallCard";
 
 interface PanelSidebarProps {

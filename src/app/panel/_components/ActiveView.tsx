@@ -1,9 +1,10 @@
-// src/app/panel/_components/ActiveView.tsx — View Principal (Orquestrador)
+// src/app/panel/_components/ActiveView.tsx — View Principal atualizada para usar usePanelLogic
 
 "use client";
 
 import { useEffect, useState } from 'react';
-import useSocket, { CallData } from '../../../hooks/useSocket';
+import usePanelLogic from '../../../hooks/usePanelLogic'; // Mudança aqui: usa a lógica composta
+import { CallData } from '../../../types/CallData';      // Mudança aqui: import do tipo isolado
 import CallCard from './CallCard';
 import PanelHeader from './layout/PanelHeader';
 import PanelSidebar from './layout/PanelSidebar';
@@ -16,19 +17,32 @@ interface ActiveViewProps {
 }
 
 export default function ActiveView({ channelSlug, token, clearPairing }: ActiveViewProps) {
-  const { isConnected, currentCall } = useSocket(channelSlug, token);
+  // Agora usamos o hook orquestrador, não mais o socket direto
+  const { isConnected, currentCall } = usePanelLogic(channelSlug, token);
+  
   const [history, setHistory] = useState<CallData[]>([]);
 
   // Gerenciamento de Histórico e Deduplicação
   useEffect(() => {
     if (currentCall) {
       setHistory((prev) => {
-        // Evita duplicar a chamada se o ID for o mesmo
-        const exists = prev.some(call => call.id === currentCall.id);
-        if (exists) return prev;
+        // Filtra o histórico para remover chamadas anteriores com o mesmo ID OU mesmo Ticket/Nome
+        // Isso evita que, ao chamar a mesma senha novamente (recall), ela apareça duplicada na lista
+        const filteredPrev = prev.filter(call => {
+          // 1. Mesmo ID (segurança técnica)
+          if (call.id === currentCall.id) return false;
+
+          // 2. Mesmo Ticket (lógica de negócio para senhas)
+          if (currentCall.ticket && call.ticket === currentCall.ticket) return false;
+
+          // 3. Mesmo Nome (lógica de negócio para chamadas nominais sem ticket)
+          if (!currentCall.ticket && !call.ticket && call.name === currentCall.name) return false;
+
+          return true;
+        });
         
-        // Mantém as últimas 6 chamadas (1 atual + 5 histórico)
-        return [currentCall, ...prev].slice(0, 6);
+        // Adiciona a nova chamada no topo e mantém o limite (1 atual + 5 histórico)
+        return [currentCall, ...filteredPrev].slice(0, 6);
       });
     }
   }, [currentCall]);
